@@ -42,7 +42,11 @@
       "WebFetch(domain:docs.ultralytics.com)",
       "Bash(\"/c/Users/jeonghe/Desktop/Work/LabelingTool/python/services/sam_service.py\":*)",
       "Bash(\"/c/Users/jeonghe/Desktop/Work/LabelingTool/python/routers/sam.py\":*)",
-      "Bash(\"/c/Users/jeonghe/Desktop/Work/LabelingTool/python/requirements.txt\":*)"
+      "Bash(\"/c/Users/jeonghe/Desktop/Work/LabelingTool/python/requirements.txt\":*)",
+      "Bash(git add electron/main/index.ts src/components/canvas/AnnotationCanvas.tsx src/components/layout/Sidebar/ImageBrowser.tsx src/index.html src/utils/)",
+      "Bash(git commit:*)",
+      "Bash(gh auth status)",
+      "Bash(git add src/utils/paths.ts electron/main/index.ts src/components/canvas/AnnotationCanvas.tsx)"
     ]
   }
 }

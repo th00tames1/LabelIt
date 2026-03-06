@@ -4,6 +4,7 @@ import { imageApi } from '../../../api/ipc'
 import { useImageStore } from '../../../store/imageStore'
 import { useUIStore } from '../../../store/uiStore'
 import type { Image, ImageStatus, SplitType } from '../../../types'
+import { toLocalFileUrl } from '../../../utils/paths'
 
 const ITEM_HEIGHT = 76
 const SIDEBAR_WIDTH = 200
@@ -102,7 +103,7 @@ function ImageItem({
         }}>
           {image.thumbnail_path ? (
             <img
-              src={`file://${image.thumbnail_path}`}
+              src={toLocalFileUrl(image.thumbnail_path)}
               alt={image.filename}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               loading="lazy"

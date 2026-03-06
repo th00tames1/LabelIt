@@ -14,7 +14,7 @@
         and http://127.0.0.1:7842 for the AI sidecar.
     -->
     <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' file: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src http://127.0.0.1:7842 ws://127.0.0.1:* http://localhost:*; font-src 'self' data:;" />
+      content="default-src 'self' localfile:; img-src 'self' file: localfile: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src http://127.0.0.1:7842 ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:*; font-src 'self' data:;" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
   </head>
   <body>

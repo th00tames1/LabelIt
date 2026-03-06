@@ -13,6 +13,7 @@ import KeypointShape from './annotations/KeypointShape'
 import MaskOverlay from './annotations/MaskOverlay'
 import BBoxPreview from './tools/BBoxPreview'
 import PolygonPreview from './tools/PolygonPreview'
+import { toLocalFileUrl } from '../../utils/paths'
 
 interface Props {
   image: Image
@@ -34,7 +35,7 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
   const [imgX, setImgX] = useState(0)
   const [imgY, setImgY] = useState(0)
 
-  const [loadedImg] = useImage(`file://${image.file_path}`)
+  const [loadedImg] = useImage(toLocalFileUrl(image.file_path))
 
   // Tool state
   const [bboxStart, setBboxStart] = useState<NormalizedPoint | null>(null)

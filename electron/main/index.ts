@@ -1,9 +1,19 @@
-import { app, BrowserWindow, shell, dialog } from 'electron'
+import { app, BrowserWindow, shell, dialog, protocol } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAllIpc } from './ipc'
 import { sidecarService } from './services/sidecar.service'
 import { closeDatabase } from './db/database'
+
+// ─── localfile:// Custom Protocol ────────────────────────────────────────────
+// Registers a custom protocol to serve local & UNC network files in the renderer.
+// This is required on school/enterprise computers where Documents is a mapped
+// network drive (e.g. \\server\share\...). Electron's Chromium blocks file://
+// URLs with a hostname, but our localfile:// protocol bypasses this safely.
+// Must be declared BEFORE app.ready via registerSchemesAsPrivileged.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'localfile', privileges: { secure: true, standard: true, supportFetchAPI: true } },
+])
 
 // ─── Windows: DPI + Rendering Flags ──────────────────────────────────────────
 // Must be set BEFORE app.whenReady() — these configure Chromium's rendering.
@@ -99,6 +109,35 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(async () => {
   // Set the Windows App User Model ID (for taskbar grouping + notifications)
   electronApp.setAppUserModelId('com.labelingtool.app')
+
+  // ── Register localfile:// protocol handler ──────────────────────────────────
+  // Reads local files (including UNC network paths) and returns them as a Response.
+  //
+  // URL format: localfile://?path=C%3A%5CUsers%5Cfoo%5Cimg.jpg
+  //   (path is URL-encoded in the query string to avoid drive-letter host confusion)
+  //
+  // Rationale: passing the Windows path in the URL path segment causes Chromium
+  // to misparse "C:" as the hostname for standard schemes. Query params are safe.
+  protocol.handle('localfile', (request) => {
+    const url = new URL(request.url)
+    const filePath = url.searchParams.get('path') ?? ''
+    if (!filePath) return new Response('Missing path', { status: 400 })
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const data: Buffer = require('fs').readFileSync(filePath)
+      const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+      const mime: Record<string, string> = {
+        jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        png: 'image/png', bmp: 'image/bmp',
+        webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff',
+      }
+      return new Response(data, {
+        headers: { 'Content-Type': mime[ext] ?? 'application/octet-stream' },
+      })
+    } catch {
+      return new Response('File not found', { status: 404 })
+    }
+  })
 
   // Electron devtools shortcut optimization
   app.on('browser-window-created', (_, window) => {

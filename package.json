@@ -1,0 +1,120 @@
+{
+  "name": "labeling-tool",
+  "version": "1.0.0",
+  "description": "Fully local desktop image labeling tool (Roboflow Annotate alternative)",
+  "main": "./out/main/index.js",
+  "author": "",
+  "homepage": ".",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "build:win": "npm run build && electron-builder --win",
+    "generate-icon": "node scripts/generate-icon.js",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "electron-store": "^8.2.0",
+    "immer": "^11.1.4",
+    "konva": "^10.2.0",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-konva": "^19.2.3",
+    "react-router-dom": "^7.13.1",
+    "react-window": "^1.8.11",
+    "sharp": "^0.33.5",
+    "tailwindcss": "^4.2.1",
+    "use-image": "^1.1.4",
+    "uuid": "^9.0.1",
+    "xmlbuilder2": "^3.1.1",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@electron-toolkit/eslint-config-prettier": "^2.0.0",
+    "@electron-toolkit/eslint-config-ts": "^2.0.0",
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.7",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-window": "^1.8.8",
+    "@types/uuid": "^9.0.8",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1"
+  },
+  "build": {
+    "appId": "com.labelingtool.app",
+    "productName": "LabelingTool",
+    "copyright": "Copyright © 2025 LabelingTool",
+
+    "directories": {
+      "output": "dist",
+      "buildResources": "resources"
+    },
+
+    "files": [
+      "out/**/*",
+      "!**/*.map",
+      "!**/*.d.ts"
+    ],
+
+    "extraResources": [
+      {
+        "from": "python",
+        "to": "python",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/*.pyo",
+          "!.venv/**"
+        ]
+      }
+    ],
+
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "resources/icon.ico",
+      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "requestedExecutionLevel": "asInvoker",
+      "verifyUpdateCodeSignature": false
+    },
+
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LabelingTool",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "license": "resources/LICENSE.txt",
+      "installerLanguages": ["English"],
+      "language": "1033"
+    },
+
+    "compression": "maximum",
+
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/sharp/**"
+    ]
+  }
+}

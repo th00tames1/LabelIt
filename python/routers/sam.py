@@ -1,0 +1,57 @@
+import time
+import base64
+from typing import Optional
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from services.sam_service import sam_service
+
+router = APIRouter()
+
+
+class SAMPredictRequest(BaseModel):
+    image_base64: str
+    points: list[list[float]]        # [[nx, ny], ...] normalized 0-1
+    point_labels: list[int]          # 1=foreground, 0=background
+    box: Optional[list[float]] = None   # [x1, y1, x2, y2] normalized, optional
+    text: Optional[str] = None       # SAM 3: concept/text prompt ("car", "person")
+    multimask: bool = True
+
+
+class SAMPredictResponse(BaseModel):
+    contours: list[list[list[float]]]  # [[[nx, ny], ...], ...] normalized
+    score: float
+    processing_time_ms: float
+    mode: str                          # "point" | "text" — which mode was used
+
+
+@router.post("/predict", response_model=SAMPredictResponse)
+async def predict(request: SAMPredictRequest):
+    try:
+        image_bytes = base64.b64decode(request.image_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image")
+
+    mode = "text" if (request.text and request.text.strip()) else "point"
+
+    t0 = time.perf_counter()
+    try:
+        contours, score = sam_service.predict(
+            image_bytes=image_bytes,
+            points=request.points,
+            point_labels=request.point_labels,
+            box=request.box,
+            text=request.text,
+            multimask=request.multimask,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SAM 3 inference error: {e}")
+
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+
+    return SAMPredictResponse(
+        contours=contours,
+        score=score,
+        processing_time_ms=elapsed_ms,
+        mode=mode,
+    )

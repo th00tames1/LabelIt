@@ -1,0 +1,68 @@
+// Typed fetch() wrappers for the Python AI sidecar (port 7842)
+
+const BASE_URL = 'http://127.0.0.1:7842'
+
+async function post<T>(path: string, body: unknown, timeoutMs = 300_000): Promise<T> {
+  // SAM 3 on CPU can take 60–180s; 300s (5 min) timeout for large images/models
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  if (!res.ok) throw new Error(`Sidecar error: ${res.status} ${await res.text()}`)
+  return res.json() as Promise<T>
+}
+
+export interface SAMPredictRequest {
+  image_base64: string
+  points: [number, number][]
+  point_labels: (0 | 1)[]
+  box?: [number, number, number, number] | null
+  /** SAM 3: optional concept/text prompt — e.g. "car", "person with hat" */
+  text?: string | null
+  multimask?: boolean
+}
+
+export interface SAMPredictResponse {
+  contours: [number, number][][]
+  score: number
+  processing_time_ms: number
+  /** "point" | "text" — which SAM 3 mode was used */
+  mode: 'point' | 'text'
+}
+
+export interface YOLODetection {
+  class_name: string
+  confidence: number
+  bbox: [number, number, number, number]  // xywh normalized
+}
+
+export interface YOLODetectRequest {
+  image_base64: string
+  model_path: string
+  confidence_threshold: number
+  iou_threshold: number
+}
+
+export interface YOLODetectResponse {
+  detections: YOLODetection[]
+  processing_time_ms: number
+}
+
+export const sidecarClient = {
+  health: async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(2000) })
+      return res.ok
+    } catch {
+      return false
+    }
+  },
+
+  samPredict: (req: SAMPredictRequest): Promise<SAMPredictResponse> =>
+    post('/sam/predict', req),
+
+  yoloDetect: (req: YOLODetectRequest): Promise<YOLODetectResponse> =>
+    post('/yolo/detect', req),
+}

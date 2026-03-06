@@ -1,0 +1,86 @@
+import { ipcMain, dialog, app } from 'electron'
+import { join } from 'path'
+import { mkdirSync, existsSync } from 'fs'
+import { openDatabase, closeDatabase } from '../db/database'
+import { initProjectMeta, getProjectMeta } from '../db/repositories/project.repo'
+import type { RecentProject } from '../db/schema'
+import ElectronStore from 'electron-store'
+
+const recentStore = new ElectronStore<{ recent: RecentProject[] }>({
+  name: 'recent-projects',
+  defaults: { recent: [] },
+})
+
+let currentProjectDir: string | null = null
+
+export function getCurrentProjectDir(): string | null {
+  return currentProjectDir
+}
+
+export function getThumbnailDir(): string {
+  if (!currentProjectDir) throw new Error('No project open')
+  return join(currentProjectDir, '.thumbnails')
+}
+
+export function registerProjectIpc(): void {
+  ipcMain.handle('project:create', async (_event, name: string, directory: string) => {
+    mkdirSync(directory, { recursive: true })
+    const dbPath = join(directory, 'project.lbl')
+    closeDatabase()
+    openDatabase(dbPath)
+    initProjectMeta(name)
+    currentProjectDir = directory
+    mkdirSync(join(directory, '.thumbnails'), { recursive: true })
+
+    addRecent({ name, file_path: dbPath, last_opened: Date.now(), image_count: 0 })
+    return getProjectMeta()
+  })
+
+  ipcMain.handle('project:open', async (_event, filePath: string) => {
+    closeDatabase()
+    openDatabase(filePath)
+    currentProjectDir = join(filePath, '..')
+    mkdirSync(join(currentProjectDir, '.thumbnails'), { recursive: true })
+
+    const meta = getProjectMeta()
+    addRecent({ name: meta.name, file_path: filePath, last_opened: Date.now(), image_count: 0 })
+    return meta
+  })
+
+  ipcMain.handle('project:close', async () => {
+    closeDatabase()
+    currentProjectDir = null
+  })
+
+  ipcMain.handle('project:getMeta', async () => getProjectMeta())
+
+  ipcMain.handle('project:listRecent', async () => {
+    return (recentStore.get('recent') as RecentProject[]).filter(
+      (r) => existsSync(r.file_path)
+    )
+  })
+
+  ipcMain.handle('project:showOpenDialog', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Open Project',
+      filters: [{ name: 'LabelingTool Project', extensions: ['lbl'] }],
+      properties: ['openFile'],
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('project:showCreateDialog', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Select Project Folder',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    return result.canceled ? null : result.filePaths[0]
+  })
+}
+
+function addRecent(project: RecentProject): void {
+  const recent = (recentStore.get('recent') as RecentProject[])
+    .filter((r) => r.file_path !== project.file_path)
+  recent.unshift(project)
+  recentStore.set('recent', recent.slice(0, 10))
+}

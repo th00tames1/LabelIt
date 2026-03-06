@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      DPI: width=device-width instructs Chromium to use the native devicePixelRatio.
+      maximum-scale=1, user-scalable=no locks layout zoom (Konva handles its own DPR).
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>LabelingTool</title>
+    <!--
+      Content-Security-Policy:
+        connect-src includes ws:// for electron-vite HMR in development,
+        and http://127.0.0.1:7842 for the AI sidecar.
+    -->
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' file: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src http://127.0.0.1:7842 ws://127.0.0.1:* http://localhost:*; font-src 'self' data:;" />
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

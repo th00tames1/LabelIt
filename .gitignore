@@ -1,0 +1,15 @@
+node_modules/
+out/
+dist/
+.DS_Store
+*.lbl
+*.lbl-journal
+*.lbl-wal
+*.lbl-shm
+python/.venv/
+python/models/*.onnx
+python/models/*.pt
+python/__pycache__/
+python/**/__pycache__/
+python/**/*.pyc
+.thumbnails/

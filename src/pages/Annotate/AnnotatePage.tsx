@@ -1,0 +1,203 @@
+import { useEffect, useCallback, useState } from 'react'
+import { useImageStore } from '../../store/imageStore'
+import { useLabelStore } from '../../store/labelStore'
+import { useAnnotationStore } from '../../store/annotationStore'
+import { useUIStore } from '../../store/uiStore'
+import { imageApi } from '../../api/ipc'
+import TopBar from '../../components/layout/TopBar/TopBar'
+import ImageBrowser from '../../components/layout/Sidebar/ImageBrowser'
+import AnnotationCanvas from '../../components/canvas/AnnotationCanvas'
+import RightPanel from '../../components/layout/RightPanel/RightPanel'
+import ExportDialog from '../../components/ExportDialog'
+import AutoSplitDialog from '../../components/AutoSplitDialog'
+import AutoLabelDialog from '../../components/AutoLabelDialog'
+import type { ToolType } from '../../types'
+
+interface Props {
+  onGoHome: () => void
+}
+
+export default function AnnotatePage({ onGoHome }: Props) {
+  const { images, setImages, activeImageId, setActiveImageId } = useImageStore()
+  const { labels, load: loadLabels } = useLabelStore()
+  const { loadForImage, clear, selectedId, deleteAnnotation, duplicateAnnotation, undo, redo } =
+    useAnnotationStore()
+  const { activeTool, setActiveTool, setActiveLabelClassId } = useUIStore()
+  const [showExport, setShowExport] = useState(false)
+  const [showAutoSplit, setShowAutoSplit] = useState(false)
+  const [showAutoLabel, setShowAutoLabel] = useState(false)
+
+  // Load images and labels on mount
+  useEffect(() => {
+    const load = async () => {
+      const [imgs] = await Promise.all([
+        imageApi.list(),
+        loadLabels(),
+      ])
+      setImages(imgs)
+      if (imgs.length > 0) {
+        setActiveImageId(imgs[0].id)
+        await loadForImage(imgs[0].id)
+      }
+    }
+    load().catch(console.error)
+
+    return () => { clear() }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-select first label class when labels load
+  useEffect(() => {
+    if (labels.length > 0) {
+      setActiveLabelClassId(labels[0].id)
+    }
+  }, [labels.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load annotations when active image changes
+  const handleSelectImage = useCallback(async (imageId: string) => {
+    setActiveImageId(imageId)
+    await loadForImage(imageId)
+  }, [setActiveImageId, loadForImage])
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+      // ─── Image navigation ──────────────────────────────────────────────────
+      const currentIdx = images.findIndex((img) => img.id === activeImageId)
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault()
+        const next = images[currentIdx + 1]
+        if (next) handleSelectImage(next.id)
+        return
+      }
+      if (e.key === 'Tab' && e.shiftKey) {
+        e.preventDefault()
+        const prev = images[currentIdx - 1]
+        if (prev) handleSelectImage(prev.id)
+        return
+      }
+
+      // ─── Tool shortcuts (no modifier) ──────────────────────────────────────
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const toolMap: Record<string, ToolType> = {
+          v: 'select', w: 'bbox', e: 'polygon', k: 'keypoint', s: 'sam',
+        }
+        if (toolMap[e.key.toLowerCase()]) {
+          setActiveTool(toolMap[e.key.toLowerCase()])
+          return
+        }
+
+        // Delete / Backspace: delete selected annotation
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+          e.preventDefault()
+          deleteAnnotation(selectedId).catch(console.error)
+          return
+        }
+
+        // 1–9: select label class by index
+        const digit = parseInt(e.key)
+        if (digit >= 1 && digit <= 9) {
+          const label = labels[digit - 1]
+          if (label) setActiveLabelClassId(label.id)
+          return
+        }
+      }
+
+      // ─── Ctrl/Cmd shortcuts ────────────────────────────────────────────────
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' && !e.shiftKey) {
+          e.preventDefault()
+          undo().catch(console.error)
+          return
+        }
+        if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+          e.preventDefault()
+          redo().catch(console.error)
+          return
+        }
+        if (e.key === 'd' && selectedId) {
+          e.preventDefault()
+          duplicateAnnotation(selectedId).catch(console.error)
+          return
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [
+    images, activeImageId, handleSelectImage,
+    activeTool, setActiveTool,
+    selectedId, deleteAnnotation, duplicateAnnotation, undo, redo,
+    labels, setActiveLabelClassId,
+  ])
+
+  const activeImage = images.find((img) => img.id === activeImageId) ?? null
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      <TopBar
+        onGoHome={onGoHome}
+        onExport={() => setShowExport(true)}
+        onAutoSplit={() => setShowAutoSplit(true)}
+        onAutoLabel={() => setShowAutoLabel(true)}
+      />
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Left sidebar: image browser */}
+        <ImageBrowser
+          images={images}
+          activeImageId={activeImageId}
+          onSelectImage={handleSelectImage}
+          onImportComplete={(newImages) => setImages(newImages)}
+        />
+
+        {/* Main canvas area */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#0a0a0a' }}>
+          {activeImage ? (
+            <AnnotationCanvas
+              image={activeImage}
+              activeTool={activeTool}
+            />
+          ) : (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              height: '100%', color: '#6b6b6b', fontSize: 14,
+            }}>
+              No images. Import images from the left sidebar.
+            </div>
+          )}
+        </div>
+
+        {/* Right panel: annotations + labels */}
+        <RightPanel />
+      </div>
+
+      {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
+      {showAutoLabel && (
+        <AutoLabelDialog
+          images={images}
+          activeImageId={activeImageId}
+          onClose={() => setShowAutoLabel(false)}
+          onComplete={async (affectedImageIds) => {
+            // Reload labels (auto-created classes) + current image annotations
+            await loadLabels()
+            if (activeImageId && affectedImageIds.includes(activeImageId)) {
+              await loadForImage(activeImageId)
+            }
+          }}
+        />
+      )}
+      {showAutoSplit && (
+        <AutoSplitDialog
+          totalImages={images.length}
+          onClose={() => setShowAutoSplit(false)}
+          onComplete={async () => {
+            const updated = await imageApi.list()
+            setImages(updated)
+          }}
+        />
+      )}
+    </div>
+  )
+}

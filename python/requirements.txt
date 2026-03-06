@@ -1,0 +1,16 @@
+# LabelingTool Python sidecar dependencies
+# FastAPI web server
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+
+# SAM 3 + YOLO via Ultralytics (includes torch, torchvision)
+# SAM 3 model (~3.4 GB) is auto-downloaded on first use by Ultralytics
+ultralytics>=8.3.0
+
+# Image processing
+numpy>=1.26.4
+pillow>=11.1.0
+opencv-python-headless>=4.10.0
+
+# NOTE: onnxruntime is no longer needed (removed — was used by MobileSAM ONNX)
+# If you still have it installed: pip uninstall onnxruntime

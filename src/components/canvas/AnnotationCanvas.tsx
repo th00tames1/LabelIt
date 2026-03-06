@@ -35,7 +35,10 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
   const [imgX, setImgX] = useState(0)
   const [imgY, setImgY] = useState(0)
 
-  const [loadedImg] = useImage(toLocalFileUrl(image.file_path))
+  // 'anonymous' crossOrigin: required so Konva canvas stays untainted when
+  // we call toDataURL() for SAM prediction. Works because localfile:// serves
+  // Access-Control-Allow-Origin: * headers (corsEnabled:true in main/index.ts).
+  const [loadedImg] = useImage(toLocalFileUrl(image.file_path), 'anonymous')
 
   // Tool state
   const [bboxStart, setBboxStart] = useState<NormalizedPoint | null>(null)

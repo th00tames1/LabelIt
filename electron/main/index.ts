@@ -12,7 +12,15 @@ import { closeDatabase } from './db/database'
 // URLs with a hostname, but our localfile:// protocol bypasses this safely.
 // Must be declared BEFORE app.ready via registerSchemesAsPrivileged.
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'localfile', privileges: { secure: true, standard: true, supportFetchAPI: true } },
+  {
+    scheme: 'localfile',
+    privileges: {
+      secure: true,       // treated as secure origin (like https)
+      standard: true,     // standard URL parsing (host + path + query)
+      supportFetchAPI: true,
+      corsEnabled: true,  // allow cross-origin — needed for toDataURL() on Konva canvas
+    },
+  },
 ])
 
 // ─── Windows: DPI + Rendering Flags ──────────────────────────────────────────
@@ -111,17 +119,21 @@ app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.labelingtool.app')
 
   // ── Register localfile:// protocol handler ──────────────────────────────────
-  // Reads local files (including UNC network paths) and returns them as a Response.
+  // Reads local & UNC network files and returns them as a CORS-enabled Response.
   //
-  // URL format: localfile://?path=C%3A%5CUsers%5Cfoo%5Cimg.jpg
-  //   (path is URL-encoded in the query string to avoid drive-letter host confusion)
-  //
-  // Rationale: passing the Windows path in the URL path segment causes Chromium
-  // to misparse "C:" as the hostname for standard schemes. Query params are safe.
+  // URL format: localfile://host?path=C%3A%5CUsers%5Cfoo%5Cimg.jpg
+  //   • Dummy host "host" is required — standard schemes reject empty hosts in Chromium.
+  //   • Path is URL-encoded in the query string to avoid drive-letter host ambiguity.
+  //   • Access-Control-Allow-Origin: * is set so Konva canvas can call toDataURL()
+  //     without a "tainted canvas" error (needed for SAM image base64 extraction).
+  const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD',
+  }
   protocol.handle('localfile', (request) => {
     const url = new URL(request.url)
     const filePath = url.searchParams.get('path') ?? ''
-    if (!filePath) return new Response('Missing path', { status: 400 })
+    if (!filePath) return new Response('Missing path', { status: 400, headers: CORS_HEADERS })
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const data: Buffer = require('fs').readFileSync(filePath)
@@ -132,10 +144,13 @@ app.whenReady().then(async () => {
         webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff',
       }
       return new Response(data, {
-        headers: { 'Content-Type': mime[ext] ?? 'application/octet-stream' },
+        headers: {
+          'Content-Type': mime[ext] ?? 'application/octet-stream',
+          ...CORS_HEADERS,
+        },
       })
     } catch {
-      return new Response('File not found', { status: 404 })
+      return new Response('File not found', { status: 404, headers: CORS_HEADERS })
     }
   })
 

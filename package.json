@@ -14,6 +14,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.59.0",
     "better-sqlite3": "^11.9.1",
     "electron-store": "^8.2.0",
     "immer": "^11.1.4",
@@ -53,18 +54,15 @@
     "appId": "com.labelingtool.app",
     "productName": "LabelingTool",
     "copyright": "Copyright © 2025 LabelingTool",
-
     "directories": {
       "output": "dist",
       "buildResources": "resources"
     },
-
     "files": [
       "out/**/*",
       "!**/*.map",
       "!**/*.d.ts"
     ],
-
     "extraResources": [
       {
         "from": "python",
@@ -78,12 +76,13 @@
         ]
       }
     ],
-
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "resources/icon.ico",
@@ -91,7 +90,6 @@
       "requestedExecutionLevel": "asInvoker",
       "verifyUpdateCodeSignature": false
     },
-
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -105,12 +103,12 @@
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "license": "resources/LICENSE.txt",
-      "installerLanguages": ["English"],
+      "installerLanguages": [
+        "English"
+      ],
       "language": "1033"
     },
-
     "compression": "maximum",
-
     "asar": true,
     "asarUnpack": [
       "node_modules/better-sqlite3/**",

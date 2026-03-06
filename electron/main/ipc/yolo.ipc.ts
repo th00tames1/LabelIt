@@ -113,12 +113,8 @@ export function registerYoloIpc(): void {
         // 1. Read image as base64
         const { readFileSync } = await import('fs')
         const imgBuffer = readFileSync(image.file_path)
-        const ext = image.file_path.split('.').pop()?.toLowerCase() ?? 'jpg'
-        const mimeMap: Record<string, string> = {
-          jpg: 'jpeg', jpeg: 'jpeg', png: 'png', bmp: 'bmp', webp: 'webp',
-        }
-        const mime = mimeMap[ext] ?? 'jpeg'
-        const base64 = `data:image/${mime};base64,${imgBuffer.toString('base64')}`
+        // Pure base64 only — no data URL prefix (Python sidecar expects raw base64)
+        const base64 = imgBuffer.toString('base64')
 
         // 2. Call sidecar
         const res = await fetch(`${sidecarBaseUrl}/yolo/detect`, {

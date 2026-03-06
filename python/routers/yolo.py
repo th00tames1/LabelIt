@@ -35,12 +35,15 @@ async def detect(request: YOLODetectRequest):
         raise HTTPException(status_code=400, detail="Invalid base64 image")
 
     t0 = time.perf_counter()
-    detections = yolo_service.detect(
-        image_bytes=image_bytes,
-        model_path=request.model_path,
-        conf=request.confidence_threshold,
-        iou=request.iou_threshold,
-    )
+    try:
+        detections = yolo_service.detect(
+            image_bytes=image_bytes,
+            model_path=request.model_path,
+            conf=request.confidence_threshold,
+            iou=request.iou_threshold,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"YOLO inference error: {e}")
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
     return YOLODetectResponse(

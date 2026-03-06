@@ -57,17 +57,14 @@ export async function exportToCOCO(options: COCOExportOptions): Promise<ExportRe
           iscrowd: 0,
         })
       } else if (
-        (ann.annotation_type === 'polygon' || ann.annotation_type === 'mask') &&
-        (ann.geometry.type === 'polygon' || ann.geometry.type === 'mask')
+        ann.annotation_type === 'polygon' && ann.geometry.type === 'polygon'
       ) {
-        const points = ann.geometry.type === 'polygon'
-          ? ann.geometry.points
-          : ann.geometry.contours[0] ?? []
+        const points: [number, number][] = ann.geometry.points
 
-        const absPoints = points.flatMap(([nx, ny]) => [nx * image.width, ny * image.height])
+        const absPoints = points.flatMap(([nx, ny]: [number, number]) => [nx * image.width, ny * image.height])
 
-        const xs = absPoints.filter((_, i) => i % 2 === 0)
-        const ys = absPoints.filter((_, i) => i % 2 === 1)
+        const xs = absPoints.filter((_: number, i: number) => i % 2 === 0)
+        const ys = absPoints.filter((_: number, i: number) => i % 2 === 1)
         const bboxX = Math.min(...xs)
         const bboxY = Math.min(...ys)
         const bboxW = Math.max(...xs) - bboxX
@@ -82,6 +79,30 @@ export async function exportToCOCO(options: COCOExportOptions): Promise<ExportRe
           segmentation: [absPoints],
           iscrowd: 0,
         })
+      } else if (
+        ann.annotation_type === 'mask' && ann.geometry.type === 'mask'
+      ) {
+        // Use the first contour as the primary segmentation polygon
+        const pts: [number, number][] = ann.geometry.contours[0] ?? []
+        if (pts.length >= 3) {
+          const absPoints = pts.flatMap(([nx, ny]: [number, number]) => [nx * image.width, ny * image.height])
+          const xs = absPoints.filter((_: number, i: number) => i % 2 === 0)
+          const ys = absPoints.filter((_: number, i: number) => i % 2 === 1)
+          const bboxX = Math.min(...xs)
+          const bboxY = Math.min(...ys)
+          const bboxW = Math.max(...xs) - bboxX
+          const bboxH = Math.max(...ys) - bboxY
+
+          cocoAnnotations.push({
+            id: annId++,
+            image_id: imageId,
+            category_id: categoryId,
+            bbox: [bboxX, bboxY, bboxW, bboxH],
+            area: bboxW * bboxH,
+            segmentation: [absPoints],
+            iscrowd: 0,
+          })
+        }
       }
     }
     fileCount++

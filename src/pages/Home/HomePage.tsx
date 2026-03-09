@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { projectApi } from '../../api/ipc'
 import { useProjectStore } from '../../store/projectStore'
 import type { RecentProject } from '../../types'
+import { useI18n } from '../../i18n'
+import LanguageSwitcher from '../../components/LanguageSwitcher'
 
 export default function HomePage() {
   const [showNewProject, setShowNewProject] = useState(false)
@@ -10,6 +12,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
 
   const { recentProjects, setRecentProjects, setCurrentProject } = useProjectStore()
+  const { t, formatDate } = useI18n()
 
   useEffect(() => {
     projectApi.listRecent().then(setRecentProjects).catch(console.error)
@@ -57,6 +60,7 @@ export default function HomePage() {
     <div className="home-page">
       <style>{`
         .home-page {
+          position: relative;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -64,6 +68,11 @@ export default function HomePage() {
           height: 100vh;
           background: var(--bg-primary);
           padding: 40px;
+        }
+        .home-toolbar {
+          position: absolute;
+          top: 24px;
+          right: 24px;
         }
         .home-header {
           text-align: center;
@@ -192,23 +201,27 @@ export default function HomePage() {
         }
       `}</style>
 
+      <div className="home-toolbar">
+        <LanguageSwitcher />
+      </div>
+
       <div className="home-header">
         <h1>LabelingTool</h1>
-        <p>Fully local, offline-capable image annotation</p>
+        <p>{t('home.subtitle')}</p>
       </div>
 
       <div className="home-actions">
         <button className="btn-primary" onClick={() => setShowNewProject(true)}>
-          + New Project
+          {t('home.newProject')}
         </button>
         <button className="btn-secondary" onClick={handleOpenProject}>
-          Open Project
+          {t('home.openProject')}
         </button>
       </div>
 
       {recentProjects.length > 0 && (
         <div className="recent-section">
-          <h2>Recent Projects</h2>
+          <h2>{t('home.recentProjects')}</h2>
           <div className="recent-grid">
             {recentProjects.map((project) => (
               <button
@@ -218,7 +231,7 @@ export default function HomePage() {
               >
                 <div className="recent-card-name">{project.name}</div>
                 <div className="recent-card-meta">
-                  {new Date(project.last_opened).toLocaleDateString()}
+                  {formatDate(project.last_opened)}
                 </div>
                 <div className="recent-card-meta" style={{ marginTop: 2 }}>
                   {project.file_path}
@@ -234,13 +247,13 @@ export default function HomePage() {
       {showNewProject && (
         <div className="modal-overlay" onClick={() => setShowNewProject(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>New Project</h3>
-            <label>Project Name</label>
+            <h3>{t('home.newProjectTitle')}</h3>
+            <label>{t('home.projectName')}</label>
             <input
               type="text"
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
-              placeholder="My Dataset"
+              placeholder={t('home.projectNamePlaceholder')}
               autoFocus
               onKeyDown={(e) => e.key === 'Enter' && handleNewProject()}
             />
@@ -250,14 +263,14 @@ export default function HomePage() {
                 className="btn-secondary"
                 onClick={() => { setShowNewProject(false); setProjectName('') }}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 className="btn-primary"
                 onClick={handleNewProject}
                 disabled={!projectName.trim() || isCreating}
               >
-                {isCreating ? 'Creating...' : 'Choose Folder →'}
+                {isCreating ? t('home.creating') : t('home.chooseFolder')}
               </button>
             </div>
           </div>

@@ -64,7 +64,7 @@ export default function BoundingBoxShape({
   // Label tag shown above bbox — clamp so it doesn't go above canvas top
   const tagH = 16
   const tagY = y < tagH ? y : y - tagH
-  const showTag = !!labelName && labelName !== 'Unlabeled'
+  const showTag = !!annotation.label_class_id && !!labelName
 
   return (
     <>

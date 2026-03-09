@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react'
 import { statsApi, type DatasetStats } from '../../../api/ipc'
+import { useI18n } from '../../../i18n'
+import type { ImageStatus, SplitType } from '../../../types'
 
 export default function StatsPanel() {
   const [stats, setStats] = useState<DatasetStats | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { t, statusLabel, splitLabel } = useI18n()
 
   const load = async () => {
     setLoading(true)
@@ -13,7 +16,7 @@ export default function StatsPanel() {
       const s = await statsApi.get()
       setStats(s)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load stats')
+      setError(e instanceof Error ? e.message : t('stats.failedToLoad'))
     } finally {
       setLoading(false)
     }
@@ -58,7 +61,7 @@ export default function StatsPanel() {
 
   if (loading) return (
     <div style={{ padding: 16, color: 'var(--text-muted)', fontSize: 12, textAlign: 'center' }}>
-      Loading…
+      {`${t('common.loading')}...`}
     </div>
   )
 
@@ -82,19 +85,19 @@ export default function StatsPanel() {
             color: 'var(--text-muted)', cursor: 'pointer',
           }}
         >
-          Refresh
+          {t('common.refresh')}
         </button>
       </div>
 
       {/* Summary */}
-      {sectionLabel('OVERVIEW')}
+      {sectionLabel(t('stats.overview'))}
       <div style={{
         display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 4,
       }}>
         {[
-          { label: 'Images', value: stats.total_images },
-          { label: 'Labeled', value: stats.labeled_images },
-          { label: 'Annots', value: stats.total_annotations },
+          { label: t('stats.images'), value: stats.total_images },
+          { label: t('stats.labeled'), value: stats.labeled_images },
+          { label: t('stats.annotations'), value: stats.total_annotations },
         ].map(({ label, value }) => (
           <div key={label} style={{
             background: 'var(--bg-tertiary)', borderRadius: 6, padding: '8px 6px',
@@ -107,21 +110,21 @@ export default function StatsPanel() {
       </div>
 
       {/* By Status */}
-      {sectionLabel('BY STATUS')}
+      {sectionLabel(t('stats.byStatus'))}
       {stats.by_status.length === 0
-        ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>No data</div>
-        : stats.by_status.map((s) => row(s.status, s.count, statusColor[s.status]))}
+        ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('stats.noData')}</div>
+        : stats.by_status.map((s) => row(statusLabel(s.status as ImageStatus), s.count, statusColor[s.status]))}
 
       {/* By Split */}
-      {sectionLabel('BY SPLIT')}
+      {sectionLabel(t('stats.bySplit'))}
       {stats.by_split.length === 0
-        ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>No data</div>
-        : stats.by_split.map((s) => row(s.split, s.count, splitColor[s.split]))}
+        ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('stats.noData')}</div>
+        : stats.by_split.map((s) => row(splitLabel(s.split as SplitType), s.count, splitColor[s.split]))}
 
       {/* By Class */}
-      {sectionLabel('BY CLASS')}
+      {sectionLabel(t('stats.byClass'))}
       {stats.by_class.length === 0
-        ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>No annotations yet</div>
+        ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('stats.noAnnotationsYet')}</div>
         : stats.by_class.map((c) => (
           <div key={c.label_class_id} style={{ marginBottom: 6 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ToolType } from '../types'
+import type { ToolType, RightPanelTab } from '../types'
 
 interface CanvasState {
   scale: number
@@ -15,6 +15,7 @@ interface UIState {
   isImporting: boolean
   annotationsVisible: boolean   // H key toggle: show/hide all annotations
   showShortcutsHelp: boolean    // ? key: keyboard shortcut reference overlay
+  rightPanelTab: RightPanelTab
 
   setActiveTool: (tool: ToolType) => void
   setActiveLabelClassId: (id: string | null) => void
@@ -23,6 +24,7 @@ interface UIState {
   setImporting: (importing: boolean) => void
   toggleAnnotationsVisible: () => void
   setShowShortcutsHelp: (show: boolean) => void
+  setRightPanelTab: (tab: RightPanelTab) => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -33,6 +35,7 @@ export const useUIStore = create<UIState>((set) => ({
   isImporting: false,
   annotationsVisible: true,
   showShortcutsHelp: false,
+  rightPanelTab: 'annotations',
 
   setActiveTool: (tool) => set({ activeTool: tool }),
   setActiveLabelClassId: (id) => set({ activeLabelClassId: id }),
@@ -41,4 +44,5 @@ export const useUIStore = create<UIState>((set) => ({
   setImporting: (importing) => set({ isImporting: importing }),
   toggleAnnotationsVisible: () => set((s) => ({ annotationsVisible: !s.annotationsVisible })),
   setShowShortcutsHelp: (show) => set({ showShortcutsHelp: show }),
+  setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
 }))

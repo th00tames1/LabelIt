@@ -14,6 +14,7 @@ import MaskOverlay from './annotations/MaskOverlay'
 import BBoxPreview from './tools/BBoxPreview'
 import PolygonPreview from './tools/PolygonPreview'
 import { toLocalFileUrl } from '../../utils/paths'
+import { useI18n } from '../../i18n'
 
 interface Props {
   image: Image
@@ -59,6 +60,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     useAnnotationStore()
   const { labels } = useLabelStore()
   const { activeLabelClassId, annotationsVisible } = useUIStore()
+  const { language, t } = useI18n()
 
   // Wrapper: create annotation and notify parent for label quick-pick
   const createAndNotify = useCallback(async (
@@ -390,8 +392,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   }
 
   const getLabelName = (labelClassId: string | null): string => {
-    if (!labelClassId) return 'Unlabeled'
-    return labels.find((l) => l.id === labelClassId)?.name ?? 'Unlabeled'
+    if (!labelClassId) return t('annotationList.unlabeled')
+    return labels.find((l) => l.id === labelClassId)?.name ?? t('annotationList.unlabeled')
   }
 
   const cursor =
@@ -549,7 +551,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                   runSAMTextPrediction(samText).catch(console.error)
                 }
               }}
-              placeholder='Text prompt: "car", "person", "dog"…'
+              placeholder={language === 'ko'
+                ? '텍스트 프롬프트: "차", "사람", "개"...'
+                : 'Text prompt: "car", "person", "dog"...'}
               style={{
                 flex: 1,
                 background: 'rgba(255,255,255,0.07)',
@@ -576,7 +580,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                 fontWeight: 500,
               }}
             >
-              {samLoading ? '⏳ Running…' : '🔍 Detect All'}
+              {samLoading ? (language === 'ko' ? '⏳ 실행 중...' : '⏳ Running...') : (language === 'ko' ? '🔍 모두 감지' : '🔍 Detect All')}
             </button>
           </div>
 
@@ -584,10 +588,14 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
               {samLoading
-                ? 'SAM 3 running (may take 60–180s on CPU)…'
+                ? (language === 'ko' ? 'SAM 3 실행 중 (CPU에서는 60-180초 걸릴 수 있음)...' : 'SAM 3 running (may take 60-180s on CPU)...')
                 : samContours
-                ? `${samContours.length} mask(s) ready — press Enter or click Commit`
-                : 'Left-click = positive  ·  Right-click = negative  ·  Enter = commit'}
+                ? (language === 'ko'
+                  ? `${samContours.length}개 마스크 준비됨 - Enter 또는 Commit 클릭`
+                  : `${samContours.length} mask(s) ready - press Enter or click Commit`)
+                : (language === 'ko'
+                  ? '왼쪽 클릭 = 긍정  ·  오른쪽 클릭 = 부정  ·  Enter = 확정'
+                  : 'Left-click = positive  ·  Right-click = negative  ·  Enter = commit')}
             </span>
             {samContours && samContours.length > 0 && (
               <button
@@ -604,16 +612,17 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                   marginLeft: 8,
                 }}
               >
-                ✓ Commit ({samContours.length})
-              </button>
-            )}
-          </div>
+                  {language === 'ko' ? `✓ 확정 (${samContours.length})` : `✓ Commit (${samContours.length})`}
+                </button>
+              )}
+            </div>
 
           {/* SAM point summary */}
           {samPoints.length > 0 && (
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
-              {samPoints.filter((p) => p.label === 1).length} positive ·{' '}
-              {samPoints.filter((p) => p.label === 0).length} negative point(s) placed
+              {language === 'ko'
+                ? `${samPoints.filter((p) => p.label === 1).length}개 긍정 · ${samPoints.filter((p) => p.label === 0).length}개 부정 포인트`
+                : `${samPoints.filter((p) => p.label === 1).length} positive · ${samPoints.filter((p) => p.label === 0).length} negative point(s) placed`}
             </div>
           )}
         </div>

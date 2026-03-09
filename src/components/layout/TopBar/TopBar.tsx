@@ -2,6 +2,8 @@ import { useProjectStore } from '../../../store/projectStore'
 import { useUIStore } from '../../../store/uiStore'
 import { useLabelStore } from '../../../store/labelStore'
 import { projectApi } from '../../../api/ipc'
+import { useI18n } from '../../../i18n'
+import LanguageSwitcher from '../../LanguageSwitcher'
 import type { ToolType } from '../../../types'
 
 interface Props {
@@ -11,12 +13,12 @@ interface Props {
   onAutoLabel: () => void
 }
 
-const TOOLS: { type: ToolType; label: string; shortcut: string }[] = [
-  { type: 'select', label: 'Select', shortcut: 'V' },
-  { type: 'bbox', label: 'BBox', shortcut: 'W' },
-  { type: 'polygon', label: 'Polygon', shortcut: 'E' },
-  { type: 'keypoint', label: 'Keypoint', shortcut: 'K' },
-  { type: 'sam', label: 'SAM', shortcut: 'S' },
+const TOOLS: { type: ToolType; labelKey: string; shortcut: string }[] = [
+  { type: 'select', labelKey: 'topbar.selectTool', shortcut: 'V' },
+  { type: 'bbox', labelKey: 'topbar.bboxTool', shortcut: 'W' },
+  { type: 'polygon', labelKey: 'topbar.polygonTool', shortcut: 'E' },
+  { type: 'keypoint', labelKey: 'topbar.keypointTool', shortcut: 'K' },
+  { type: 'sam', labelKey: 'sam', shortcut: 'S' },
 ]
 
 export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }: Props) {
@@ -30,8 +32,22 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
   const toggleAnnotationsVisible = useUIStore((s) => s.toggleAnnotationsVisible)
   const setShowShortcutsHelp = useUIStore((s) => s.setShowShortcutsHelp)
   const labels = useLabelStore((s) => s.labels)
+  const { t } = useI18n()
 
   const activeLabel = labels.find((l) => l.id === activeLabelClassId)
+  const drawingLocked = labels.length === 0
+  const toolButtons = TOOLS.map((tool) => {
+    const label = tool.labelKey === 'sam' ? 'SAM' : t(tool.labelKey)
+    const disabled = (tool.type !== 'select' && drawingLocked)
+      || (tool.type === 'sam' && !sidecarOnline)
+    const title = disabled
+      ? drawingLocked && tool.type !== 'select'
+        ? t('topbar.toolLocked')
+        : t('topbar.aiOffline')
+      : `${label} (${tool.shortcut})`
+
+    return { ...tool, label, disabled, title }
+  })
 
   const handleClose = async () => {
     await projectApi.close()
@@ -60,9 +76,9 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           fontSize: 13,
           background: 'none',
         }}
-        title="Back to home"
+        title={t('topbar.backHome')}
       >
-        ← Home
+        {t('topbar.home')}
       </button>
 
       <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
@@ -83,7 +99,9 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           border: `1px solid ${activeLabel ? activeLabel.color + '55' : 'var(--border)'}`,
           minWidth: 120,
         }}
-        title="Active label class (press 1-9 to change)"
+        title={drawingLocked
+          ? t('topbar.activeLabelMissingTitle')
+          : t('topbar.activeLabelTitle')}
       >
         {activeLabel ? (
           <>
@@ -99,7 +117,7 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
             </span>
           </>
         ) : (
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No label</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('topbar.activeLabelMissing')}</span>
         )}
       </div>
 
@@ -107,11 +125,11 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
 
       {/* Tool selector */}
       <div style={{ display: 'flex', gap: 4 }}>
-        {TOOLS.map((tool) => (
+        {toolButtons.map((tool) => (
           <button
             key={tool.type}
             onClick={() => setActiveTool(tool.type)}
-            title={`${tool.label} (${tool.shortcut})`}
+            title={tool.title}
             style={{
               padding: '4px 10px',
               borderRadius: 5,
@@ -120,10 +138,10 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
               background: activeTool === tool.type ? 'var(--accent)' : 'var(--bg-tertiary)',
               color: activeTool === tool.type ? 'white' : 'var(--text-secondary)',
               border: `1px solid ${activeTool === tool.type ? 'var(--accent)' : 'var(--border)'}`,
-              opacity: tool.type === 'sam' && !sidecarOnline ? 0.4 : 1,
-              cursor: tool.type === 'sam' && !sidecarOnline ? 'not-allowed' : 'pointer',
+              opacity: tool.disabled ? 0.4 : 1,
+              cursor: tool.disabled ? 'not-allowed' : 'pointer',
             }}
-            disabled={tool.type === 'sam' && !sidecarOnline}
+            disabled={tool.disabled}
           >
             {tool.label}
             <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.6 }}>{tool.shortcut}</span>
@@ -136,7 +154,7 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
       {/* Annotation visibility toggle */}
       <button
         onClick={toggleAnnotationsVisible}
-        title={`${annotationsVisible ? 'Hide' : 'Show'} annotations (H)`}
+        title={annotationsVisible ? t('topbar.hideAnnotations') : t('topbar.showAnnotations')}
         style={{
           padding: '4px 10px', borderRadius: 5, fontSize: 12,
           background: annotationsVisible ? 'var(--bg-tertiary)' : 'rgba(234,179,8,0.15)',
@@ -145,14 +163,14 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           cursor: 'pointer',
         }}
       >
-        {annotationsVisible ? '👁 Show' : '🚫 Hidden'}
+        {annotationsVisible ? `👁 ${t('topbar.visibilityVisible')}` : `🚫 ${t('topbar.visibilityHidden')}`}
       </button>
 
       {/* AI actions */}
       <button
         onClick={onAutoLabel}
         disabled={!sidecarOnline}
-        title={sidecarOnline ? 'Run YOLO auto-label' : 'AI sidecar offline'}
+        title={sidecarOnline ? t('topbar.autoLabelTitle') : t('topbar.aiOffline')}
         style={{
           padding: '4px 12px', borderRadius: 5, fontSize: 12, fontWeight: 600,
           background: sidecarOnline ? 'rgba(139,92,246,0.2)' : 'var(--bg-tertiary)',
@@ -162,59 +180,61 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           opacity: sidecarOnline ? 1 : 0.5,
         }}
       >
-        ⚡ Auto Label
+        {`⚡ ${t('topbar.autoLabel')}`}
       </button>
 
       {/* Dataset actions */}
-      <button
-        onClick={onAutoSplit}
-        title="Auto-split images into train/val/test"
-        style={{
+        <button
+          onClick={onAutoSplit}
+          title={t('topbar.autoSplitTitle')}
+          style={{
           padding: '4px 10px', borderRadius: 5, fontSize: 12, fontWeight: 500,
           background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
           color: 'var(--text-secondary)', cursor: 'pointer',
         }}
-      >
-        Split
-      </button>
-      <button
-        onClick={onExport}
-        title="Export dataset"
-        style={{
+        >
+          {t('topbar.autoSplit')}
+        </button>
+        <button
+          onClick={onExport}
+          title={t('topbar.exportTitle')}
+          style={{
           padding: '4px 14px', borderRadius: 5, fontSize: 12, fontWeight: 600,
           background: 'var(--accent)', border: 'none',
           color: 'white', cursor: 'pointer',
         }}
-      >
-        Export
-      </button>
+        >
+          {t('topbar.export')}
+        </button>
 
       <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
 
       {/* Help button */}
-      <button
-        onClick={() => setShowShortcutsHelp(true)}
-        title="Keyboard shortcuts (?)"
-        style={{
+        <button
+          onClick={() => setShowShortcutsHelp(true)}
+          title={t('topbar.shortcutsTitle')}
+          style={{
           padding: '4px 8px', borderRadius: 5, fontSize: 13, fontWeight: 700,
           background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
           color: 'var(--text-muted)', cursor: 'pointer',
         }}
       >
-        ?
+        {t('topbar.shortcuts')}
       </button>
+
+      <LanguageSwitcher compact />
 
       {/* AI status */}
       <div
         style={{ display: 'flex', alignItems: 'center', gap: 5 }}
-        title={sidecarOnline ? 'AI sidecar online' : 'AI sidecar offline — SAM/auto-label unavailable'}
+        title={sidecarOnline ? t('topbar.aiOn') : t('topbar.aiOffline')}
       >
         <div style={{
           width: 8, height: 8, borderRadius: '50%',
           background: sidecarOnline ? 'var(--success)' : '#555',
         }} />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          AI {sidecarOnline ? 'On' : 'Off'}
+          {sidecarOnline ? t('topbar.aiOn') : t('topbar.aiOff')}
         </span>
       </div>
     </div>

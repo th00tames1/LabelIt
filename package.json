@@ -11,7 +11,8 @@
     "preview": "electron-vite preview",
     "build:win": "npm run build && electron-builder --win",
     "generate-icon": "node scripts/generate-icon.js",
-    "postinstall": "electron-builder install-app-deps"
+    "native:fix": "node scripts/ensure-native-deps.js",
+    "postinstall": "electron-builder install-app-deps && npm run native:fix"
   },
   "dependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.59.0",

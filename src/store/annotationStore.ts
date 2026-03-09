@@ -61,6 +61,10 @@ export const useAnnotationStore = create<AnnotationState>()(
     clear: () => set({ annotations: [], selectedId: null, undoStack: [], redoStack: [] }),
 
     createAnnotation: async (imageId, annotationType, geometry, labelClassId) => {
+      if (!labelClassId) {
+        throw new Error('Create or select a label before drawing annotations.')
+      }
+
       // Auto-advance image status: unlabeled → in_progress on first annotation
       const isFirst = get().annotations.length === 0
       if (isFirst) {
@@ -152,6 +156,9 @@ export const useAnnotationStore = create<AnnotationState>()(
     duplicateAnnotation: async (id) => {
       const source = get().annotations.find((a) => a.id === id)
       if (!source) return null
+      if (!source.label_class_id) {
+        throw new Error('Assign a label before duplicating this annotation.')
+      }
 
       const offsetGeometry = offsetAnnotation(source.geometry, 0.01)
       return get().createAnnotation(

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { yoloApi, type ImageAutoLabelResult } from '../api/ipc'
 import type { Image } from '../types'
+import { useI18n } from '../i18n'
 
 type Target = 'current' | 'unlabeled' | 'all'
 
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export default function AutoLabelDialog({ images, activeImageId, onClose, onComplete }: Props) {
+  const { language, t } = useI18n()
   const [modelPath, setModelPath] = useState('yolo11n')
   const [confidence, setConfidence] = useState(0.25)
   const [iou, setIou] = useState(0.45)
@@ -22,6 +24,69 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
   const [progress, setProgress] = useState(0)          // 0–1
   const [results, setResults] = useState<ImageAutoLabelResult[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const batch = (() => {
+    if (target === 'current') {
+      const img = images.find((i) => i.id === activeImageId)
+      return img ? [img] : []
+    }
+    if (target === 'unlabeled') return images.filter((i) => i.status === 'unlabeled')
+    return images
+  })()
+
+  const text = language === 'ko'
+    ? {
+        title: '자동 라벨링',
+        subtitle: 'YOLO 객체 탐지 · 결과는 수동 검토가 필요합니다',
+        model: '모델',
+        modelHint: 'Ultralytics 형식: yolo11n · yolo11s · yolo11m · yolo11l · yolo11x 또는 전체 .pt 경로',
+        confidence: '신뢰도',
+        iou: 'IOU 임계값',
+        runOn: '실행 대상',
+        running: 'YOLO 실행 중...',
+        complete: '✓ 완료',
+        images: '이미지',
+        detections: '탐지 수',
+        errors: '오류',
+        autoCreated: '⚠ 자동 생성된 라벨 클래스: ',
+        reviewHint: '어노테이션은 yolo_auto로 표시됩니다. Annotations 패널에서 각각 승인 또는 거절하세요.',
+        selected: `${batch.length}개 이미지 선택됨`,
+        close: '닫기',
+        run: '▶ 자동 라벨링 실행',
+        runningButton: '실행 중...',
+        runAgain: '다시 실행',
+        current: '현재 이미지',
+        unlabeled: `미라벨 이미지 (${images.filter((i) => i.status === 'unlabeled').length})`,
+        all: `전체 이미지 (${images.length})`,
+        placeholder: 'yolo11n  (이름 또는 절대 .pt 경로)',
+        failed: '자동 라벨링에 실패했습니다',
+      }
+    : {
+        title: 'Auto Label',
+        subtitle: 'YOLO object detection · results need manual review',
+        model: 'Model',
+        modelHint: 'Ultralytics format: yolo11n · yolo11s · yolo11m · yolo11l · yolo11x — or full .pt path',
+        confidence: 'Confidence',
+        iou: 'IOU threshold',
+        runOn: 'Run on',
+        running: 'Running YOLO...',
+        complete: '✓ Complete',
+        images: 'Images',
+        detections: 'Detections',
+        errors: 'Errors',
+        autoCreated: '⚠ Auto-created label classes: ',
+        reviewHint: 'Annotations are tagged as yolo_auto. Review them in the Annotations panel and accept or reject each one.',
+        selected: `${batch.length} image${batch.length !== 1 ? 's' : ''} selected`,
+        close: 'Close',
+        run: '▶ Run Auto Label',
+        runningButton: 'Running...',
+        runAgain: 'Run Again',
+        current: 'Current image',
+        unlabeled: `Unlabeled images (${images.filter((i) => i.status === 'unlabeled').length})`,
+        all: `All images (${images.length})`,
+        placeholder: 'yolo11n  (name or absolute .pt path)',
+        failed: 'Auto-label failed',
+      }
 
   // Derived: which images will be processed
   const targetImages = (): Image[] => {
@@ -67,21 +132,20 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
         .map((r) => r.imageId)
       onComplete(affected)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Auto-label failed')
+      setError(e instanceof Error ? e.message : text.failed)
     } finally {
       setIsRunning(false)
     }
   }
 
-  const batch = targetImages()
   const totalDetections = results?.reduce((s, r) => s + r.detectionCount, 0) ?? 0
   const errCount = results?.filter((r) => r.error).length ?? 0
   const newClasses = [...new Set(results?.flatMap((r) => r.newLabelClasses) ?? [])]
 
   const targetLabel: Record<Target, string> = {
-    current: 'Current image',
-    unlabeled: `Unlabeled images (${images.filter((i) => i.status === 'unlabeled').length})`,
-    all: `All images (${images.length})`,
+    current: text.current,
+    unlabeled: text.unlabeled,
+    all: text.all,
   }
 
   return (
@@ -106,10 +170,10 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
         }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-              Auto Label
+              {text.title}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-              YOLO object detection · results need manual review
+              {text.subtitle}
             </div>
           </div>
           {!isRunning && (
@@ -122,13 +186,13 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
           {/* Model path */}
           <div>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
-              Model
+              {text.model}
             </label>
             <input
               type="text"
               value={modelPath}
               onChange={(e) => setModelPath(e.target.value)}
-              placeholder="yolo11n  (name or absolute .pt path)"
+              placeholder={text.placeholder}
               disabled={isRunning}
               style={{
                 width: '100%', boxSizing: 'border-box',
@@ -138,15 +202,15 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
               }}
             />
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
-              Ultralytics format: yolo11n · yolo11s · yolo11m · yolo11l · yolo11x — or full .pt path
+              {text.modelHint}
             </div>
           </div>
 
           {/* Confidence + IOU sliders */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             {[
-              { label: 'Confidence', value: confidence, set: setConfidence, min: 0.01, max: 0.95, step: 0.01 },
-              { label: 'IOU threshold', value: iou, set: setIou, min: 0.1, max: 0.9, step: 0.05 },
+              { label: text.confidence, value: confidence, set: setConfidence, min: 0.01, max: 0.95, step: 0.01 },
+              { label: text.iou, value: iou, set: setIou, min: 0.1, max: 0.9, step: 0.05 },
             ].map(({ label, value, set, min, max, step }) => (
               <div key={label}>
                 <label style={{
@@ -171,7 +235,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
           {/* Target selector */}
           <div>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
-              Run on
+              {text.runOn}
             </label>
             <div style={{ display: 'flex', gap: 6 }}>
               {(['current', 'unlabeled', 'all'] as Target[]).map((t) => (
@@ -200,7 +264,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
                 display: 'flex', justifyContent: 'space-between',
                 fontSize: 11, color: 'var(--text-muted)', marginBottom: 5,
               }}>
-                <span>Running YOLO…</span>
+                <span>{text.running}</span>
                 <span>{Math.round(progress * 100)}%</span>
               </div>
               <div style={{ height: 6, background: 'var(--bg-tertiary)', borderRadius: 3, overflow: 'hidden' }}>
@@ -232,13 +296,13 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
                 fontSize: 12, fontWeight: 700, color: 'var(--text-primary)',
                 marginBottom: 8,
               }}>
-                ✓ Complete
+                {text.complete}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
                 {[
-                  { label: 'Images', value: results.length },
-                  { label: 'Detections', value: totalDetections },
-                  { label: 'Errors', value: errCount },
+                  { label: text.images, value: results.length },
+                  { label: text.detections, value: totalDetections },
+                  { label: text.errors, value: errCount },
                 ].map(({ label, value }) => (
                   <div key={label} style={{
                     background: 'var(--bg-secondary)', borderRadius: 6, padding: '6px 8px',
@@ -251,12 +315,11 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
               </div>
               {newClasses.length > 0 && (
                 <div style={{ fontSize: 11, color: '#facc15', marginTop: 4 }}>
-                  ⚠ Auto-created label classes: {newClasses.join(', ')}
+                  {text.autoCreated}{newClasses.join(', ')}
                 </div>
               )}
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.4 }}>
-                Annotations tagged as <code style={{ color: 'var(--accent)' }}>yolo_auto</code> — review in
-                the Annotations panel and accept or reject each one.
+                {text.reviewHint}
               </div>
               {/* Per-image error list */}
               {errCount > 0 && (
@@ -278,7 +341,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
         }}>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            {!isRunning && !results && `${batch.length} image${batch.length !== 1 ? 's' : ''} selected`}
+            {!isRunning && !results && text.selected}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
@@ -292,7 +355,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
                 opacity: isRunning ? 0.5 : 1,
               }}
             >
-              {results ? 'Close' : 'Cancel'}
+              {results ? text.close : t('common.cancel')}
             </button>
             {!results && (
               <button
@@ -306,7 +369,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
                   opacity: isRunning || batch.length === 0 ? 0.6 : 1,
                 }}
               >
-                {isRunning ? 'Running…' : '▶ Run Auto Label'}
+                {isRunning ? text.runningButton : text.run}
               </button>
             )}
             {results && (
@@ -317,7 +380,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
                   background: 'var(--accent)', border: 'none', color: 'white', cursor: 'pointer',
                 }}
               >
-                Run Again
+                {text.runAgain}
               </button>
             )}
           </div>

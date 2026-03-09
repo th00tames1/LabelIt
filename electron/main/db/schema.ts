@@ -4,6 +4,7 @@ export type ImageStatus = 'unlabeled' | 'in_progress' | 'labeled' | 'approved'
 export type SplitType = 'train' | 'val' | 'test' | 'unassigned'
 export type AnnotationType = 'bbox' | 'polygon' | 'polyline' | 'keypoints' | 'mask'
 export type AnnotationSource = 'manual' | 'sam' | 'yolo_auto'
+export type AppLanguage = 'en' | 'ko'
 
 // ─── Geometry types (all coordinates normalized 0.0–1.0) ───────────────────
 
@@ -185,6 +186,7 @@ export interface CSVExportOptions {
 // ─── App settings ───────────────────────────────────────────────────────────
 
 export interface AppSettings {
+  language: AppLanguage
   theme: 'dark' | 'light' | 'system'
   default_label_colors: string[]
   canvas_zoom_sensitivity: number
@@ -194,6 +196,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  language: 'en',
   theme: 'dark',
   default_label_colors: [
     '#EF4444', '#F97316', '#EAB308', '#22C55E',

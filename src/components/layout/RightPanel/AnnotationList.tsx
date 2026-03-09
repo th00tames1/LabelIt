@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useAnnotationStore } from '../../../store/annotationStore'
 import { useLabelStore } from '../../../store/labelStore'
 import { useImageStore } from '../../../store/imageStore'
-import { yoloApi, annotationApi } from '../../../api/ipc'
+import { yoloApi } from '../../../api/ipc'
+import { useI18n } from '../../../i18n'
 import type { Annotation, AnnotationType } from '../../../types'
 
 const TYPE_ICONS: Record<AnnotationType, string> = {
@@ -18,6 +19,7 @@ export default function AnnotationList() {
     useAnnotationStore()
   const { labels, load: reloadLabels } = useLabelStore()
   const activeImageId = useImageStore((s) => s.activeImageId)
+  const { t } = useI18n()
 
   // Filter state: show all or only yolo_auto
   const [filterAuto, setFilterAuto] = useState(false)
@@ -25,8 +27,8 @@ export default function AnnotationList() {
   const autoCount = annotations.filter((a) => a.source === 'yolo_auto').length
 
   const getLabelName = (id: string | null) => {
-    if (!id) return 'Unlabeled'
-    return labels.find((l) => l.id === id)?.name ?? 'Unlabeled'
+    if (!id) return t('annotationList.unlabeled')
+    return labels.find((l) => l.id === id)?.name ?? t('annotationList.unlabeled')
   }
 
   const getLabelColor = (id: string | null) => {
@@ -103,9 +105,9 @@ export default function AnnotationList() {
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
             color: 'var(--text-secondary)', cursor: 'pointer',
           }}
-          title="Undo (Ctrl+Z)"
+          title={t('annotationList.undoTitle')}
         >
-          ↩ Undo
+          {`↩ ${t('annotationList.undo')}`}
         </button>
         <button
           onClick={() => redo()}
@@ -114,9 +116,9 @@ export default function AnnotationList() {
             background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
             color: 'var(--text-secondary)', cursor: 'pointer',
           }}
-          title="Redo (Ctrl+Y)"
+          title={t('annotationList.redoTitle')}
         >
-          ↪ Redo
+          {`↪ ${t('annotationList.redo')}`}
         </button>
       </div>
 
@@ -135,7 +137,7 @@ export default function AnnotationList() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ fontSize: 10, color: '#fbbf24' }}>⚡</span>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#fbbf24' }}>
-                {autoCount} auto-label{autoCount !== 1 ? 's' : ''} to review
+                {t('annotationList.autoToReview', { count: autoCount, suffix: autoCount === 1 ? '' : 's' })}
               </span>
             </div>
             <button
@@ -148,7 +150,7 @@ export default function AnnotationList() {
                 cursor: 'pointer', fontWeight: 600,
               }}
             >
-              {filterAuto ? 'Show all' : 'Filter'}
+              {filterAuto ? t('annotationList.showAll') : t('annotationList.filter')}
             </button>
           </div>
           <div style={{ display: 'flex', gap: 5 }}>
@@ -159,9 +161,9 @@ export default function AnnotationList() {
                 background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)',
                 color: '#4ade80', cursor: 'pointer',
               }}
-              title="Accept all — converts yolo_auto to manual annotations"
+              title={t('annotationList.acceptAllTitle')}
             >
-              ✓ Accept All
+              {`✓ ${t('annotationList.acceptAll')}`}
             </button>
             <button
               onClick={handleRejectAll}
@@ -170,9 +172,9 @@ export default function AnnotationList() {
                 background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
                 color: '#f87171', cursor: 'pointer',
               }}
-              title="Reject all — deletes all yolo_auto annotations"
+              title={t('annotationList.rejectAllTitle')}
             >
-              ✕ Reject All
+              {`✕ ${t('annotationList.rejectAll')}`}
             </button>
           </div>
         </div>
@@ -185,7 +187,7 @@ export default function AnnotationList() {
             padding: '20px 12px', color: 'var(--text-muted)',
             fontSize: 12, textAlign: 'center', lineHeight: 1.5,
           }}>
-            {filterAuto ? 'No auto-label annotations.' : 'No annotations.\nUse tools to draw.'}
+            {filterAuto ? t('annotationList.noAutoAnnotations') : t('annotationList.noAnnotations')}
           </div>
         )}
 
@@ -225,6 +227,7 @@ function AnnotationItem({
   onReject: () => void
 }) {
   const [showLabelPicker, setShowLabelPicker] = useState(false)
+  const { t } = useI18n()
   const icon = TYPE_ICONS[annotation.annotation_type] ?? '?'
   const isAuto = annotation.source === 'yolo_auto'
 
@@ -286,7 +289,7 @@ function AnnotationItem({
                 background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)',
                 color: '#4ade80', cursor: 'pointer',
               }}
-              title="Accept — keep as manual annotation"
+              title={t('annotationList.acceptTitle')}
             >✓</button>
             <button
               onClick={(e) => { e.stopPropagation(); onReject() }}
@@ -295,7 +298,7 @@ function AnnotationItem({
                 background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
                 color: '#f87171', cursor: 'pointer',
               }}
-              title="Reject — delete this annotation"
+              title={t('annotationList.rejectTitle')}
             >✕</button>
           </>
         ) : (
@@ -307,7 +310,7 @@ function AnnotationItem({
               color: 'var(--text-muted)', opacity: 0.7, background: 'none',
               border: 'none', cursor: 'pointer',
             }}
-            title="Delete"
+            title={t('annotationList.delete')}
           >×</button>
         )}
       </div>
@@ -326,7 +329,7 @@ function AnnotationItem({
             style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: 'var(--text-muted)' }}
             onClick={() => { onChangeLabel(null); setShowLabelPicker(false) }}
           >
-            Unlabeled
+            {t('annotationList.unlabeled')}
           </div>
           {labels.map((l) => (
             <div

@@ -6,6 +6,8 @@ export type SplitType = 'train' | 'val' | 'test' | 'unassigned'
 export type AnnotationType = 'bbox' | 'polygon' | 'polyline' | 'keypoints' | 'mask'
 export type AnnotationSource = 'manual' | 'sam' | 'yolo_auto'
 export type ToolType = 'select' | 'bbox' | 'polygon' | 'keypoint' | 'sam'
+export type RightPanelTab = 'annotations' | 'labels' | 'stats'
+export type AppLanguage = 'en' | 'ko'
 
 export interface BBoxGeometry {
   type: 'bbox'
@@ -77,6 +79,7 @@ export interface NormalizedPoint {
 }
 
 export interface AppSettings {
+  language: AppLanguage
   theme: 'dark' | 'light' | 'system'
   default_label_colors: string[]
   canvas_zoom_sensitivity: number
@@ -84,4 +87,3 @@ export interface AppSettings {
   sidecar_port: number
   shortcut_overrides: Record<string, string>
 }
-

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useLabelStore } from '../../../store/labelStore'
+import { useI18n } from '../../../i18n'
 
 const PRESET_COLORS = [
   '#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6',
@@ -8,6 +9,7 @@ const PRESET_COLORS = [
 
 export default function LabelManager() {
   const { labels, createLabel, updateLabel, deleteLabel } = useLabelStore()
+  const { t } = useI18n()
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -49,7 +51,8 @@ export default function LabelManager() {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            placeholder="Label name..."
+            placeholder={t('labelManager.placeholder')}
+            autoFocus={labels.length === 0}
             style={{ flex: 1, fontSize: 12, padding: '5px 8px' }}
           />
         </div>
@@ -76,15 +79,20 @@ export default function LabelManager() {
             opacity: !newName.trim() ? 0.5 : 1,
           }}
         >
-          + Add Label
+          {t('labelManager.add')}
         </button>
       </div>
 
       {/* Label list */}
       <div style={{ padding: '6px 0' }}>
         {labels.length === 0 && (
-          <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: 12, textAlign: 'center' }}>
-            No labels yet.
+          <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.6 }}>
+            <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: 8 }}>
+              {t('labelManager.emptyTitle')}
+            </div>
+            <div>{t('labelManager.emptyStep1')}</div>
+            <div>{t('labelManager.emptyStep2')}</div>
+            <div>{t('labelManager.emptyStep3')}</div>
           </div>
         )}
 
@@ -104,7 +112,7 @@ export default function LabelManager() {
                 type="color"
                 value={label.color}
                 onChange={(e) => handleColorChange(label.id, e.target.value)}
-                title="Click to change color"
+                title={t('labelManager.changeColor')}
                 style={{
                   width: 18, height: 18, borderRadius: '50%',
                   border: '1px solid rgba(255,255,255,0.2)',
@@ -179,7 +187,7 @@ export default function LabelManager() {
             <button
               onClick={() => deleteLabel(label.id)}
               style={{ padding: '2px 5px', fontSize: 11, color: 'var(--text-muted)', opacity: 0.7 }}
-              title="Delete label"
+              title={t('labelManager.delete')}
             >
               ×
             </button>

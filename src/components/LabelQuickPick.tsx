@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react'
 import { useLabelStore } from '../store/labelStore'
 import { useAnnotationStore } from '../store/annotationStore'
 import { useUIStore } from '../store/uiStore'
+import { useI18n } from '../i18n'
 
 interface Props {
   annotationId: string
@@ -17,6 +18,7 @@ export default function LabelQuickPick({ annotationId, onDismiss }: Props) {
   const { labels } = useLabelStore()
   const { updateLabel } = useAnnotationStore()
   const { activeLabelClassId, setActiveLabelClassId } = useUIStore()
+  const { t } = useI18n()
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Close on outside click
@@ -89,9 +91,9 @@ export default function LabelQuickPick({ annotationId, onDismiss }: Props) {
         borderBottom: '1px solid #2a2a3e',
         letterSpacing: '0.05em', textTransform: 'uppercase',
       }}>
-        라벨 지정
+        {t('quickPick.title')}
         <span style={{ color: '#555', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
-          · Enter 확인  · Esc 건너뛰기
+          {`· ${t('quickPick.help')}`}
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -125,7 +127,7 @@ export default function LabelQuickPick({ annotationId, onDismiss }: Props) {
         })}
         {labels.length === 0 && (
           <div style={{ padding: '6px 10px', color: '#555', fontSize: 12 }}>
-            No labels yet. Create labels in the Labels panel.
+            {t('quickPick.empty')}
           </div>
         )}
       </div>

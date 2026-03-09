@@ -3,6 +3,7 @@ import { FixedSizeList as List } from 'react-window'
 import { imageApi } from '../../../api/ipc'
 import { useImageStore } from '../../../store/imageStore'
 import { useUIStore } from '../../../store/uiStore'
+import { useI18n } from '../../../i18n'
 import type { Image, ImageStatus, SplitType } from '../../../types'
 import { toLocalFileUrl } from '../../../utils/paths'
 
@@ -29,18 +30,18 @@ interface ItemData {
   onContextMenu: (imageId: string, x: number, y: number) => void
 }
 
-const STATUS_OPTIONS: { value: ImageStatus; label: string; color: string }[] = [
-  { value: 'unlabeled', label: 'Unlabeled', color: '#6b7280' },
-  { value: 'in_progress', label: 'In Progress', color: '#f59e0b' },
-  { value: 'labeled', label: 'Labeled', color: '#22c55e' },
-  { value: 'approved', label: 'Approved', color: '#3b82f6' },
+const STATUS_OPTIONS: { value: ImageStatus; color: string }[] = [
+  { value: 'unlabeled', color: '#6b7280' },
+  { value: 'in_progress', color: '#f59e0b' },
+  { value: 'labeled', color: '#22c55e' },
+  { value: 'approved', color: '#3b82f6' },
 ]
 
-const SPLIT_OPTIONS: { value: SplitType; label: string; color: string }[] = [
-  { value: 'train', label: 'Train', color: '#8b5cf6' },
-  { value: 'val', label: 'Val', color: '#06b6d4' },
-  { value: 'test', label: 'Test', color: '#f97316' },
-  { value: 'unassigned', label: 'Unassigned', color: '#6b7280' },
+const SPLIT_OPTIONS: { value: SplitType; color: string }[] = [
+  { value: 'train', color: '#8b5cf6' },
+  { value: 'val', color: '#06b6d4' },
+  { value: 'test', color: '#f97316' },
+  { value: 'unassigned', color: '#6b7280' },
 ]
 
 function ImageItem({
@@ -52,6 +53,7 @@ function ImageItem({
 }) {
   const image = data.images[index]
   const isActive = image.id === data.activeImageId
+  const { language, statusLabel } = useI18n()
 
   const statusColor: Record<string, string> = {
     unlabeled: '#6b7280',
@@ -61,9 +63,9 @@ function ImageItem({
   }
 
   const splitBadge: Record<string, { label: string; color: string }> = {
-    train: { label: 'T', color: '#8b5cf6' },
-    val: { label: 'V', color: '#06b6d4' },
-    test: { label: 'E', color: '#f97316' },
+    train: { label: language === 'ko' ? '학' : 'T', color: '#8b5cf6' },
+    val: { label: language === 'ko' ? '검' : 'V', color: '#06b6d4' },
+    test: { label: language === 'ko' ? '테' : 'E', color: '#f97316' },
     unassigned: { label: '-', color: '#6b7280' },
   }
 
@@ -143,11 +145,11 @@ function ImageItem({
           </div>
           {/* Status + annotation count */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-            <div style={{
+           <div style={{
               width: 6, height: 6, borderRadius: '50%',
               background: statusColor[image.status] ?? '#555',
             }} />
-            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{image.status}</span>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{statusLabel(image.status)}</span>
             {image.annotation_count > 0 && (
               <span style={{
                 marginLeft: 'auto', fontSize: 9, fontWeight: 700,
@@ -170,8 +172,10 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
   const updateImageInList = useImageStore((s) => s.updateImageInList)
   const setImporting = useUIStore((s) => s.setImporting)
   const isImporting = useUIStore((s) => s.isImporting)
+  const { t, statusLabel, splitLabel } = useI18n()
   const dropRef = useRef<HTMLDivElement>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+  const activeImage = images.find((image) => image.id === activeImageId) ?? null
 
   // Close context menu on outside click
   useEffect(() => {
@@ -189,19 +193,30 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
     setContextMenu({ imageId, x, y })
   }, [])
 
+  const syncImage = useCallback(async (imageId: string) => {
+    const img = await imageApi.get(imageId)
+    if (img) updateImageInList(img)
+  }, [updateImageInList])
+
+  const handleUpdateStatus = useCallback(async (imageId: string, status: ImageStatus) => {
+    await imageApi.updateStatus(imageId, status)
+    await syncImage(imageId)
+  }, [syncImage])
+
   const handleSetStatus = async (status: ImageStatus) => {
     if (!contextMenu) return
-    await imageApi.updateStatus(contextMenu.imageId, status)
-    const img = await imageApi.get(contextMenu.imageId)
-    if (img) updateImageInList(img)
+    await handleUpdateStatus(contextMenu.imageId, status)
     setContextMenu(null)
   }
 
+  const handleUpdateSplit = useCallback(async (imageId: string, split: SplitType) => {
+    await imageApi.updateSplit(imageId, split)
+    await syncImage(imageId)
+  }, [syncImage])
+
   const handleSetSplit = async (split: SplitType) => {
     if (!contextMenu) return
-    await imageApi.updateSplit(contextMenu.imageId, split)
-    const img = await imageApi.get(contextMenu.imageId)
-    if (img) updateImageInList(img)
+    await handleUpdateSplit(contextMenu.imageId, split)
     setContextMenu(null)
   }
 
@@ -270,6 +285,11 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
     </button>
   )
 
+  const imageCountText = t('sidebar.imagesCount', {
+    count: images.length,
+    suffix: images.length === 1 ? '' : 's',
+  })
+
   return (
     <div
       ref={dropRef}
@@ -301,7 +321,7 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
               background: 'var(--accent)', color: 'white', fontWeight: 600,
             }}
           >
-            + Images
+            {t('sidebar.imagesButton')}
           </button>
           <button
             onClick={handleImportFolder}
@@ -312,12 +332,90 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
               border: '1px solid var(--border)',
             }}
           >
-            Folder
+            {t('sidebar.folderButton')}
           </button>
         </div>
+        <div style={{
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          padding: '8px',
+          background: 'var(--bg-primary)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>
+              {t('sidebar.selectedImage')}
+            </div>
+            {activeImage ? (
+              <>
+                <div style={{
+                  fontSize: 11,
+                  color: 'var(--text-primary)',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {activeImage.filename}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {activeImage.width}×{activeImage.height}
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                {t('sidebar.noImageSelected')}
+              </div>
+            )}
+          </div>
+
+          {activeImage && (
+            <>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+                  {t('sidebar.status')}
+                </span>
+                <select
+                  value={activeImage.status}
+                  onChange={(e) => handleUpdateStatus(activeImage.id, e.target.value as ImageStatus).catch(console.error)}
+                  style={{ fontSize: 11, padding: '5px 6px' }}
+                >
+                  {STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {statusLabel(option.value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+                  {t('sidebar.split')}
+                </span>
+                <select
+                  value={activeImage.split}
+                  onChange={(e) => handleUpdateSplit(activeImage.id, e.target.value as SplitType).catch(console.error)}
+                  style={{ fontSize: 11, padding: '5px 6px' }}
+                >
+                  {SPLIT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {splitLabel(option.value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                {t('sidebar.advancedHint')}
+              </div>
+            </>
+          )}
+        </div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-          {images.length} image{images.length !== 1 ? 's' : ''}
-          {isImporting && ' · importing...'}
+          {imageCountText}
+          {isImporting && ` · ${t('sidebar.importing')}`}
         </div>
       </div>
 
@@ -340,7 +438,7 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
           padding: 16, textAlign: 'center',
         }}>
           <div style={{ color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.5 }}>
-            Drop images here or use the buttons above
+            {t('sidebar.dropHint')}
           </div>
         </div>
       )}
@@ -363,17 +461,17 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
           onClick={(e) => e.stopPropagation()}
         >
           <div style={{ padding: '4px 10px 6px', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
-            STATUS
+            {t('sidebar.contextStatus')}
           </div>
           {STATUS_OPTIONS.map((s) =>
-            menuItem(s.label, s.color, () => handleSetStatus(s.value), ctxImage.status === s.value)
+            menuItem(statusLabel(s.value), s.color, () => handleSetStatus(s.value), ctxImage.status === s.value)
           )}
           <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
           <div style={{ padding: '4px 10px 6px', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
-            SPLIT
+            {t('sidebar.contextSplit')}
           </div>
           {SPLIT_OPTIONS.map((s) =>
-            menuItem(s.label, s.color, () => handleSetSplit(s.value), ctxImage.split === s.value)
+            menuItem(splitLabel(s.value), s.color, () => handleSetSplit(s.value), ctxImage.split === s.value)
           )}
         </div>
       )}

@@ -13,27 +13,37 @@ import RightPanel from '../../components/layout/RightPanel/RightPanel'
 import ExportDialog from '../../components/ExportDialog'
 import AutoSplitDialog from '../../components/AutoSplitDialog'
 import AutoLabelDialog from '../../components/AutoLabelDialog'
-import type { ToolType } from '../../types'
+import { useI18n } from '../../i18n'
+import type { ToolType, RightPanelTab } from '../../types'
 
 interface Props {
   onGoHome: () => void
 }
 
+interface WorkflowNotice {
+  tone: 'info' | 'warning'
+  title: string
+  message: string
+  targetTab?: RightPanelTab
+}
+
 export default function AnnotatePage({ onGoHome }: Props) {
   const { images, setImages, activeImageId, setActiveImageId, updateImageInList } = useImageStore()
   const { labels, load: loadLabels } = useLabelStore()
-  const { loadForImage, clear, selectedId, deleteAnnotation, duplicateAnnotation, undo, redo } =
+  const { annotations, loadForImage, clear, selectedId, deleteAnnotation, duplicateAnnotation, undo, redo } =
     useAnnotationStore()
   const {
     activeTool, setActiveTool, setActiveLabelClassId,
     activeLabelClassId,
-    toggleAnnotationsVisible, showShortcutsHelp, setShowShortcutsHelp,
+    toggleAnnotationsVisible, showShortcutsHelp, setShowShortcutsHelp, setRightPanelTab,
   } = useUIStore()
+  const { t } = useI18n()
   const [showExport, setShowExport] = useState(false)
   const [showAutoSplit, setShowAutoSplit] = useState(false)
   const [showAutoLabel, setShowAutoLabel] = useState(false)
   // Quick-label popup: shown after drawing a new annotation
   const [quickPickAnnotationId, setQuickPickAnnotationId] = useState<string | null>(null)
+  const [workflowNotice, setWorkflowNotice] = useState<WorkflowNotice | null>(null)
 
   // Load images and labels on mount — auto-select first unlabeled image
   useEffect(() => {
@@ -56,18 +66,77 @@ export default function AnnotatePage({ onGoHome }: Props) {
     return () => { clear() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-select first label class when labels load
+  // Keep the label/tool state safe for first-time workflows.
   useEffect(() => {
-    if (labels.length > 0) {
+    if (labels.length === 0) {
+      setActiveLabelClassId(null)
+      setRightPanelTab('labels')
+      if (activeTool !== 'select') setActiveTool('select')
+      return
+    }
+
+    const activeStillExists = activeLabelClassId != null && labels.some((label) => label.id === activeLabelClassId)
+    if (!activeStillExists) {
       setActiveLabelClassId(labels[0].id)
     }
-  }, [labels.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [labels, activeLabelClassId, activeTool, setActiveLabelClassId, setActiveTool, setRightPanelTab])
 
   // Load annotations when active image changes
   const handleSelectImage = useCallback(async (imageId: string) => {
+    setWorkflowNotice(null)
     setActiveImageId(imageId)
     await loadForImage(imageId)
   }, [setActiveImageId, loadForImage])
+
+  const showCreateLabelNotice = useCallback(() => {
+    setActiveTool('select')
+    setRightPanelTab('labels')
+    setWorkflowNotice({
+      tone: 'info',
+      title: t('notice.createLabelTitle'),
+      message: t('notice.createLabelMessage'),
+      targetTab: 'labels',
+    })
+  }, [setActiveTool, setRightPanelTab, t])
+
+  const canMarkCurrentImageComplete = useCallback(() => {
+    if (!activeImageId) return false
+
+    if (annotations.length === 0) {
+      setRightPanelTab('annotations')
+      setWorkflowNotice({
+        tone: 'warning',
+        title: t('notice.cannotCompleteTitle'),
+        message: t('notice.cannotCompleteMessage'),
+        targetTab: 'annotations',
+      })
+      return false
+    }
+
+    if (annotations.some((annotation) => annotation.label_class_id == null)) {
+      setRightPanelTab('annotations')
+      setWorkflowNotice({
+        tone: 'warning',
+        title: t('notice.labelEveryAnnotationTitle'),
+        message: t('notice.labelEveryAnnotationMessage'),
+        targetTab: 'annotations',
+      })
+      return false
+    }
+
+    if (annotations.some((annotation) => annotation.source === 'yolo_auto')) {
+      setRightPanelTab('annotations')
+      setWorkflowNotice({
+        tone: 'warning',
+        title: t('notice.reviewAutoLabelsTitle'),
+        message: t('notice.reviewAutoLabelsMessage'),
+        targetTab: 'annotations',
+      })
+      return false
+    }
+
+    return true
+  }, [activeImageId, annotations, setRightPanelTab, t])
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -106,7 +175,12 @@ export default function AnnotatePage({ onGoHome }: Props) {
         // Space: mark current image as "labeled" and jump to next unlabeled
         if (e.key === ' ') {
           e.preventDefault()
-          if (activeImageId) {
+          if (labels.length === 0) {
+            showCreateLabelNotice()
+            return
+          }
+          if (activeImageId && canMarkCurrentImageComplete()) {
+            setWorkflowNotice(null)
             imageApi.updateStatus(activeImageId, 'labeled')
               .then(async () => {
                 const updated = await imageApi.get(activeImageId)
@@ -137,8 +211,14 @@ export default function AnnotatePage({ onGoHome }: Props) {
         const toolMap: Record<string, ToolType> = {
           v: 'select', w: 'bbox', e: 'polygon', k: 'keypoint', s: 'sam',
         }
-        if (toolMap[e.key.toLowerCase()]) {
-          setActiveTool(toolMap[e.key.toLowerCase()])
+        const requestedTool = toolMap[e.key.toLowerCase()]
+        if (requestedTool) {
+          if (requestedTool !== 'select' && labels.length === 0) {
+            e.preventDefault()
+            showCreateLabelNotice()
+            return
+          }
+          setActiveTool(requestedTool)
           return
         }
 
@@ -181,12 +261,12 @@ export default function AnnotatePage({ onGoHome }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [
-    images, activeImageId, handleSelectImage,
-    activeTool, setActiveTool,
-    selectedId, deleteAnnotation, duplicateAnnotation, undo, redo,
-    labels, setActiveLabelClassId,
-    activeLabelClassId, toggleAnnotationsVisible, setShowShortcutsHelp,
-    updateImageInList,
+      images, activeImageId, handleSelectImage,
+      activeTool, setActiveTool,
+      selectedId, deleteAnnotation, duplicateAnnotation, undo, redo,
+      labels, setActiveLabelClassId,
+      activeLabelClassId, toggleAnnotationsVisible, setShowShortcutsHelp,
+      updateImageInList, canMarkCurrentImageComplete, showCreateLabelNotice,
   ])
 
   const activeImage = images.find((img) => img.id === activeImageId) ?? null
@@ -210,6 +290,100 @@ export default function AnnotatePage({ onGoHome }: Props) {
 
         {/* Main canvas area */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#0a0a0a' }}>
+          {labels.length === 0 && (
+            <div style={{
+              position: 'absolute', top: 16, left: 16, right: 16, zIndex: 5,
+              display: 'flex', justifyContent: 'center', pointerEvents: 'none',
+            }}>
+              <div style={{
+                pointerEvents: 'auto',
+                width: 'min(560px, 100%)',
+                background: 'rgba(24,24,30,0.92)',
+                border: '1px solid rgba(99,102,241,0.35)',
+                borderRadius: 10,
+                padding: '14px 16px',
+                boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#f8fafc', marginBottom: 6 }}>
+                  {t('annotate.onboardingTitle')}
+                </div>
+                <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.6 }}>
+                  {t('annotate.onboardingBody')}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button
+                    onClick={() => setRightPanelTab('labels')}
+                    style={{
+                      padding: '7px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                      background: 'var(--accent)', color: 'white', fontSize: 12, fontWeight: 600,
+                    }}
+                  >
+                    {t('annotate.openLabels')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {workflowNotice && labels.length > 0 && (
+            <div style={{
+              position: 'absolute', top: 16, left: 16, right: 16, zIndex: 6,
+              display: 'flex', justifyContent: 'center', pointerEvents: 'none',
+            }}>
+              <div style={{
+                pointerEvents: 'auto',
+                width: 'min(520px, 100%)',
+                background: workflowNotice.tone === 'warning'
+                  ? 'rgba(120,53,15,0.92)'
+                  : 'rgba(30,41,59,0.92)',
+                border: workflowNotice.tone === 'warning'
+                  ? '1px solid rgba(251,191,36,0.35)'
+                  : '1px solid rgba(148,163,184,0.28)',
+                borderRadius: 10,
+                padding: '12px 14px',
+                boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'start', gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc', marginBottom: 4 }}>
+                      {workflowNotice.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5 }}>
+                      {workflowNotice.message}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setWorkflowNotice(null)}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: '#cbd5e1', fontSize: 16, lineHeight: 1,
+                    }}
+                    title={t('common.dismiss')}
+                  >
+                    ×
+                  </button>
+                </div>
+                {workflowNotice.targetTab && (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      onClick={() => setRightPanelTab(workflowNotice.targetTab!)}
+                      style={{
+                        padding: '6px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                        background: workflowNotice.tone === 'warning' ? '#f59e0b' : 'var(--accent)',
+                        color: workflowNotice.tone === 'warning' ? '#111827' : 'white',
+                        fontSize: 12, fontWeight: 700,
+                      }}
+                    >
+                      {workflowNotice.targetTab === 'labels'
+                        ? t('annotate.openLabels')
+                        : t('annotate.openAnnotations')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeImage ? (
             <AnnotationCanvas
               image={activeImage}
@@ -221,7 +395,7 @@ export default function AnnotatePage({ onGoHome }: Props) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               height: '100%', color: '#6b6b6b', fontSize: 14,
             }}>
-              No images. Import images from the left sidebar.
+              {t('annotate.noImages')}
             </div>
           )}
         </div>

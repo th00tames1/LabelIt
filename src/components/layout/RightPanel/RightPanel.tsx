@@ -1,18 +1,29 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import AnnotationList from './AnnotationList'
 import LabelManager from './LabelManager'
 import StatsPanel from './StatsPanel'
-
-type Tab = 'annotations' | 'labels' | 'stats'
-
-const TABS: { value: Tab; label: string }[] = [
-  { value: 'annotations', label: 'Annots' },
-  { value: 'labels', label: 'Labels' },
-  { value: 'stats', label: 'Stats' },
-]
+import { useLabelStore } from '../../../store/labelStore'
+import { useUIStore } from '../../../store/uiStore'
+import { useI18n } from '../../../i18n'
+import type { RightPanelTab } from '../../../types'
 
 export default function RightPanel() {
-  const [tab, setTab] = useState<Tab>('annotations')
+  const tab = useUIStore((s) => s.rightPanelTab)
+  const setTab = useUIStore((s) => s.setRightPanelTab)
+  const labels = useLabelStore((s) => s.labels)
+  const { t } = useI18n()
+
+  const tabs: { value: RightPanelTab; label: string }[] = [
+    { value: 'annotations', label: t('tabs.annotations') },
+    { value: 'labels', label: t('tabs.labels') },
+    { value: 'stats', label: t('tabs.stats') },
+  ]
+
+  useEffect(() => {
+    if (labels.length === 0 && tab !== 'labels') {
+      setTab('labels')
+    }
+  }, [labels.length, tab, setTab])
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     flex: 1,
@@ -38,9 +49,13 @@ export default function RightPanel() {
     }}>
       {/* Tab bar */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-        {TABS.map((t) => (
-          <button key={t.value} style={tabStyle(tab === t.value)} onClick={() => setTab(t.value)}>
-            {t.label}
+        {tabs.map((panelTab) => (
+          <button
+            key={panelTab.value}
+            style={tabStyle(tab === panelTab.value)}
+            onClick={() => setTab(panelTab.value)}
+          >
+            {panelTab.label}
           </button>
         ))}
       </div>

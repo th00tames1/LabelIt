@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { imageApi } from '../api/ipc'
+import { useI18n } from '../i18n'
 
 interface Props {
   totalImages: number
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Props) {
+  const { language, t } = useI18n()
   const [train, setTrain] = useState(70)
   const [val, setVal] = useState(20)
   const [test, setTest] = useState(10)
@@ -17,6 +19,35 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
 
   const sum = train + val + test
   const invalid = sum !== 100
+  const text = language === 'ko'
+    ? {
+        title: '데이터셋 자동 분할',
+        description: `${totalImages}개 이미지를 학습 / 검증 / 테스트로 무작위 배정합니다. 기존 분할값은 덮어씁니다.`,
+        train: '학습',
+        val: '검증',
+        test: '테스트',
+        total: '합계',
+        invalid: ' - 합계는 100%여야 합니다',
+        complete: '✓ 분할 완료 - 이미지가 학습/검증/테스트에 배정되었습니다',
+        close: '닫기',
+        running: '분할 중...',
+        apply: '분할 적용',
+        failed: '자동 분할에 실패했습니다',
+      }
+    : {
+        title: 'Auto Split Dataset',
+        description: `Randomly assign ${totalImages} image${totalImages !== 1 ? 's' : ''} to train / val / test splits. Existing split assignments will be overwritten.`,
+        train: 'Train',
+        val: 'Val',
+        test: 'Test',
+        total: 'Total',
+        invalid: ' - must equal 100%',
+        complete: '✓ Split complete - images assigned to train/val/test',
+        close: 'Close',
+        running: 'Splitting...',
+        apply: 'Apply Split',
+        failed: 'Auto-split failed',
+      }
 
   const handleChange = (
     field: 'train' | 'val' | 'test',
@@ -42,7 +73,7 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
       setDone(true)
       onComplete()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Auto-split failed')
+      setError(e instanceof Error ? e.message : text.failed)
     } finally {
       setIsRunning(false)
     }
@@ -108,20 +139,19 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-            Auto Split Dataset
+            {text.title}
           </span>
           <button onClick={onClose} style={{ color: 'var(--text-muted)', fontSize: 18, background: 'none' }}>✕</button>
         </div>
 
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Randomly assign {totalImages} image{totalImages !== 1 ? 's' : ''} to train / val / test splits.
-            Existing split assignments will be overwritten.
+            {text.description}
           </div>
 
-          {numField('Train', 'train', train, '#8b5cf6')}
-          {numField('Val', 'val', val, '#06b6d4')}
-          {numField('Test', 'test', test, '#f97316')}
+          {numField(text.train, 'train', train, '#8b5cf6')}
+          {numField(text.val, 'val', val, '#06b6d4')}
+          {numField(text.test, 'test', test, '#f97316')}
 
           {/* Sum indicator */}
           <div style={{
@@ -130,9 +160,9 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
             background: invalid ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)',
             border: `1px solid ${invalid ? 'rgba(239,68,68,0.3)' : 'rgba(34,197,94,0.3)'}`,
           }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Total</span>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{text.total}</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: invalid ? '#f87171' : '#4ade80' }}>
-              {sum}%{invalid ? ' — must equal 100%' : ' ✓'}
+              {sum}%{invalid ? text.invalid : ' ✓'}
             </span>
           </div>
 
@@ -165,7 +195,7 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
               background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)',
               fontSize: 12, color: '#4ade80',
             }}>
-              ✓ Split complete — images assigned to train/val/test
+              {text.complete}
             </div>
           )}
         </div>
@@ -183,7 +213,7 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
               color: 'var(--text-secondary)', cursor: 'pointer',
             }}
           >
-            {done ? 'Close' : 'Cancel'}
+            {done ? text.close : t('common.cancel')}
           </button>
           {!done && (
             <button
@@ -197,7 +227,7 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
                 opacity: invalid || isRunning ? 0.6 : 1,
               }}
             >
-              {isRunning ? 'Splitting…' : 'Apply Split'}
+              {isRunning ? text.running : text.apply}
             </button>
           )}
         </div>

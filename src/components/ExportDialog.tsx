@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { exportApi, type ExportResult } from '../api/ipc'
 import type { SplitType } from '../types'
+import { useI18n } from '../i18n'
 
 interface Props {
   onClose: () => void
@@ -8,21 +9,8 @@ interface Props {
 
 type Format = 'yolo' | 'coco' | 'voc' | 'csv'
 
-const FORMAT_OPTIONS: { value: Format; label: string; desc: string }[] = [
-  { value: 'yolo', label: 'YOLO', desc: 'YOLOv5/v8 txt + data.yaml (bbox & polygon)' },
-  { value: 'coco', label: 'COCO JSON', desc: 'MS COCO instances.json (bbox & segmentation)' },
-  { value: 'voc', label: 'Pascal VOC', desc: 'XML per image (Annotations/ folder)' },
-  { value: 'csv', label: 'CSV', desc: 'Single CSV file (all annotation types)' },
-]
-
-const SPLIT_OPTIONS: { value: SplitType | 'all'; label: string }[] = [
-  { value: 'all', label: 'All images' },
-  { value: 'train', label: 'Train only' },
-  { value: 'val', label: 'Val only' },
-  { value: 'test', label: 'Test only' },
-]
-
 export default function ExportDialog({ onClose }: Props) {
+  const { language, t, splitLabel } = useI18n()
   const [format, setFormat] = useState<Format>('yolo')
   const [split, setSplit] = useState<SplitType | 'all'>('all')
   const [includeImages, setIncludeImages] = useState(false)
@@ -30,6 +18,61 @@ export default function ExportDialog({ onClose }: Props) {
   const [isExporting, setIsExporting] = useState(false)
   const [result, setResult] = useState<ExportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const formatOptions: { value: Format; label: string; desc: string }[] = language === 'ko'
+    ? [
+        { value: 'yolo', label: 'YOLO', desc: 'YOLOv5/v8 txt + data.yaml (박스 및 폴리곤)' },
+        { value: 'coco', label: 'COCO JSON', desc: 'MS COCO instances.json (박스 및 세그멘테이션)' },
+        { value: 'voc', label: 'Pascal VOC', desc: '이미지별 XML 파일 (Annotations 폴더)' },
+        { value: 'csv', label: 'CSV', desc: '단일 CSV 파일 (모든 어노테이션 유형)' },
+      ]
+    : [
+        { value: 'yolo', label: 'YOLO', desc: 'YOLOv5/v8 txt + data.yaml (bbox & polygon)' },
+        { value: 'coco', label: 'COCO JSON', desc: 'MS COCO instances.json (bbox & segmentation)' },
+        { value: 'voc', label: 'Pascal VOC', desc: 'XML per image (Annotations/ folder)' },
+        { value: 'csv', label: 'CSV', desc: 'Single CSV file (all annotation types)' },
+      ]
+
+  const splitOptions: { value: SplitType | 'all'; label: string }[] = [
+    { value: 'all', label: language === 'ko' ? '전체 이미지' : 'All images' },
+    { value: 'train', label: language === 'ko' ? `${splitLabel('train')}만` : 'Train only' },
+    { value: 'val', label: language === 'ko' ? `${splitLabel('val')}만` : 'Val only' },
+    { value: 'test', label: language === 'ko' ? `${splitLabel('test')}만` : 'Test only' },
+  ]
+
+  const text = language === 'ko'
+    ? {
+        title: '데이터셋 내보내기',
+        format: '포맷',
+        splitFilter: '분할 필터',
+        copyImages: '이미지 파일을 내보내기 폴더로 복사',
+        outputFile: '출력 파일',
+        outputDirectory: '출력 폴더',
+        choosePath: `찾아보기를 눌러 ${format === 'csv' ? '파일' : '폴더'}을 선택하세요`,
+        browse: '찾아보기...',
+        close: '닫기',
+        exporting: '내보내는 중...',
+        export: '내보내기',
+        exported: `✓ ${result?.file_count ?? 0}개 이미지, ${result?.annotation_count ?? 0}개 어노테이션 내보내기 완료`,
+        selectPath: '먼저 출력 경로를 선택하세요.',
+        failed: '내보내기에 실패했습니다',
+      }
+    : {
+        title: 'Export Dataset',
+        format: 'FORMAT',
+        splitFilter: 'SPLIT FILTER',
+        copyImages: 'Copy image files to export directory',
+        outputFile: 'OUTPUT FILE',
+        outputDirectory: 'OUTPUT DIRECTORY',
+        choosePath: `Click Browse to select ${format === 'csv' ? 'file' : 'directory'}`,
+        browse: 'Browse...',
+        close: 'Close',
+        exporting: 'Exporting...',
+        export: 'Export',
+        exported: `✓ Exported ${result?.file_count ?? 0} images, ${result?.annotation_count ?? 0} annotations`,
+        selectPath: 'Please select an output path first.',
+        failed: 'Export failed',
+      }
 
   const handlePickPath = async () => {
     if (format === 'csv') {
@@ -42,7 +85,7 @@ export default function ExportDialog({ onClose }: Props) {
   }
 
   const handleExport = async () => {
-    if (!outputPath) { setError('Please select an output path first.'); return }
+    if (!outputPath) { setError(text.selectPath); return }
     setError(null)
     setResult(null)
     setIsExporting(true)
@@ -63,7 +106,7 @@ export default function ExportDialog({ onClose }: Props) {
 
       setResult(res)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Export failed')
+      setError(e instanceof Error ? e.message : text.failed)
     } finally {
       setIsExporting(false)
     }
@@ -89,7 +132,7 @@ export default function ExportDialog({ onClose }: Props) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-            Export Dataset
+            {text.title}
           </span>
           <button onClick={onClose} style={{ color: 'var(--text-muted)', fontSize: 18, background: 'none' }}>✕</button>
         </div>
@@ -98,10 +141,10 @@ export default function ExportDialog({ onClose }: Props) {
           {/* Format selection */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>
-              FORMAT
+              {text.format}
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {FORMAT_OPTIONS.map((opt) => (
+              {formatOptions.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => setFormat(opt.value)}
@@ -124,10 +167,10 @@ export default function ExportDialog({ onClose }: Props) {
           {/* Split filter */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>
-              SPLIT FILTER
+              {text.splitFilter}
             </label>
             <div style={{ display: 'flex', gap: 6 }}>
-              {SPLIT_OPTIONS.map((opt) => (
+              {splitOptions.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => setSplit(opt.value)}
@@ -153,14 +196,14 @@ export default function ExportDialog({ onClose }: Props) {
                 checked={includeImages}
                 onChange={(e) => setIncludeImages(e.target.checked)}
               />
-              <span style={{ color: 'var(--text-primary)' }}>Copy image files to export directory</span>
+              <span style={{ color: 'var(--text-primary)' }}>{text.copyImages}</span>
             </label>
           )}
 
           {/* Output path */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>
-              {format === 'csv' ? 'OUTPUT FILE' : 'OUTPUT DIRECTORY'}
+              {format === 'csv' ? text.outputFile : text.outputDirectory}
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{
@@ -169,7 +212,7 @@ export default function ExportDialog({ onClose }: Props) {
                 fontSize: 12, color: outputPath ? 'var(--text-primary)' : 'var(--text-muted)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                {outputPath || `Click Browse to select ${format === 'csv' ? 'file' : 'directory'}`}
+                {outputPath || text.choosePath}
               </div>
               <button
                 onClick={handlePickPath}
@@ -179,7 +222,7 @@ export default function ExportDialog({ onClose }: Props) {
                   color: 'var(--text-primary)', cursor: 'pointer', whiteSpace: 'nowrap',
                 }}
               >
-                Browse…
+                {text.browse}
               </button>
             </div>
           </div>
@@ -198,9 +241,9 @@ export default function ExportDialog({ onClose }: Props) {
               background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)',
               fontSize: 12, color: '#4ade80',
             }}>
-              ✓ Exported {result.file_count} images, {result.annotation_count} annotations
+              {text.exported}
               <div style={{ marginTop: 4, color: 'var(--text-muted)', wordBreak: 'break-all' }}>
-                → {result.output_path}
+                {`-> ${result.output_path}`}
               </div>
             </div>
           )}
@@ -219,7 +262,7 @@ export default function ExportDialog({ onClose }: Props) {
               color: 'var(--text-secondary)', cursor: 'pointer',
             }}
           >
-            Close
+            {text.close}
           </button>
           <button
             onClick={handleExport}
@@ -231,7 +274,7 @@ export default function ExportDialog({ onClose }: Props) {
               opacity: isExporting ? 0.6 : 1,
             }}
           >
-            {isExporting ? 'Exporting…' : 'Export'}
+            {isExporting ? text.exporting : text.export}
           </button>
         </div>
       </div>

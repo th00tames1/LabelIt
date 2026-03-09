@@ -10,11 +10,15 @@ let db: Database.Database | null = null
  * Runs all pending migrations automatically.
  */
 export function openDatabase(dbPath: string): Database.Database {
-  db = new Database(dbPath)
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  runMigrations(db)
-  return db
+  try {
+    db = new Database(dbPath)
+    db.pragma('journal_mode = WAL')
+    db.pragma('foreign_keys = ON')
+    runMigrations(db)
+    return db
+  } catch (error) {
+    throw normalizeDatabaseOpenError(error)
+  }
 }
 
 export function getDatabase(): Database.Database {
@@ -63,4 +67,21 @@ function runMigrations(database: Database.Database): void {
       .prepare('INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)')
       .run(filename, Date.now())
   }
+}
+
+function normalizeDatabaseOpenError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error)
+
+  if (
+    message.includes('better_sqlite3.node is not a valid Win32 application')
+    || message.includes('invalid ELF header')
+    || message.includes('wrong ELF class')
+  ) {
+    return new Error(
+      'LabelingTool could not load its local SQLite module for this OS.\n\n'
+      + 'Run `npm install` or `npm run native:fix` in the project root, then restart the app.'
+    )
+  }
+
+  return error instanceof Error ? error : new Error(message)
 }

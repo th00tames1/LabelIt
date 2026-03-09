@@ -94,7 +94,7 @@ export default function PolygonShape({
     ? flatPoints.filter((_, i) => i % 2 === 1).reduce((a, b) => a + b, 0) / (flatPoints.length / 2)
     : 0
 
-  const showTag = isClosed && !!labelName && labelName !== 'Unlabeled'
+  const showTag = isClosed && !!annotation.label_class_id && !!labelName
   const tagW = Math.max(40, (labelName?.length ?? 0) * 7 + 8)
   const tagH = 16
 

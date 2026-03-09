@@ -75,6 +75,7 @@ export interface Image {
   split: SplitType
   imported_at: number
   sort_order: number
+  annotation_count: number   // computed via subquery in listImages
 }
 
 export interface Annotation {

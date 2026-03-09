@@ -17,20 +17,22 @@ function rowToImage(row: ImageRow): Image {
 
 export function listImages(filter?: ImageFilter): Image[] {
   const db = getDatabase()
-  let sql = 'SELECT * FROM images WHERE 1=1'
+  let sql = `SELECT i.*,
+    COALESCE((SELECT COUNT(*) FROM annotations a WHERE a.image_id = i.id), 0) AS annotation_count
+    FROM images i WHERE 1=1`
   const params: unknown[] = []
 
-  if (filter?.status) { sql += ' AND status = ?'; params.push(filter.status) }
-  if (filter?.split && filter.split !== 'unassigned') { sql += ' AND split = ?'; params.push(filter.split) }
-  if (filter?.search) { sql += ' AND filename LIKE ?'; params.push(`%${filter.search}%`) }
+  if (filter?.status) { sql += ' AND i.status = ?'; params.push(filter.status) }
+  if (filter?.split && filter.split !== 'unassigned') { sql += ' AND i.split = ?'; params.push(filter.split) }
+  if (filter?.search) { sql += ' AND i.filename LIKE ?'; params.push(`%${filter.search}%`) }
   if (filter?.label_class_id) {
-    sql += ` AND id IN (
+    sql += ` AND i.id IN (
       SELECT DISTINCT image_id FROM annotations WHERE label_class_id = ?
     )`
     params.push(filter.label_class_id)
   }
 
-  sql += ' ORDER BY sort_order ASC, imported_at ASC'
+  sql += ' ORDER BY i.sort_order ASC, i.imported_at ASC'
   return (db.prepare(sql).all(...params) as ImageRow[]).map(rowToImage)
 }
 

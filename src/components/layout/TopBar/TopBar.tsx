@@ -1,5 +1,6 @@
 import { useProjectStore } from '../../../store/projectStore'
 import { useUIStore } from '../../../store/uiStore'
+import { useLabelStore } from '../../../store/labelStore'
 import { projectApi } from '../../../api/ipc'
 import type { ToolType } from '../../../types'
 
@@ -24,6 +25,13 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
   const activeTool = useUIStore((s) => s.activeTool)
   const setActiveTool = useUIStore((s) => s.setActiveTool)
   const sidecarOnline = useUIStore((s) => s.sidecarOnline)
+  const activeLabelClassId = useUIStore((s) => s.activeLabelClassId)
+  const annotationsVisible = useUIStore((s) => s.annotationsVisible)
+  const toggleAnnotationsVisible = useUIStore((s) => s.toggleAnnotationsVisible)
+  const setShowShortcutsHelp = useUIStore((s) => s.setShowShortcutsHelp)
+  const labels = useLabelStore((s) => s.labels)
+
+  const activeLabel = labels.find((l) => l.id === activeLabelClassId)
 
   const handleClose = async () => {
     await projectApi.close()
@@ -66,6 +74,37 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
 
       <div style={{ flex: 1 }} />
 
+      {/* Active label indicator — always visible while drawing */}
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '3px 10px', borderRadius: 5,
+          background: activeLabel ? `${activeLabel.color}22` : 'var(--bg-tertiary)',
+          border: `1px solid ${activeLabel ? activeLabel.color + '55' : 'var(--border)'}`,
+          minWidth: 120,
+        }}
+        title="Active label class (press 1-9 to change)"
+      >
+        {activeLabel ? (
+          <>
+            <div style={{
+              width: 10, height: 10, borderRadius: '50%',
+              background: activeLabel.color, flexShrink: 0,
+            }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: activeLabel.color, whiteSpace: 'nowrap' }}>
+              {activeLabel.name}
+            </span>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 2 }}>
+              ({labels.indexOf(activeLabel) + 1})
+            </span>
+          </>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No label</span>
+        )}
+      </div>
+
+      <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+
       {/* Tool selector */}
       <div style={{ display: 'flex', gap: 4 }}>
         {TOOLS.map((tool) => (
@@ -93,6 +132,21 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
       </div>
 
       <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+
+      {/* Annotation visibility toggle */}
+      <button
+        onClick={toggleAnnotationsVisible}
+        title={`${annotationsVisible ? 'Hide' : 'Show'} annotations (H)`}
+        style={{
+          padding: '4px 10px', borderRadius: 5, fontSize: 12,
+          background: annotationsVisible ? 'var(--bg-tertiary)' : 'rgba(234,179,8,0.15)',
+          border: `1px solid ${annotationsVisible ? 'var(--border)' : 'rgba(234,179,8,0.5)'}`,
+          color: annotationsVisible ? 'var(--text-secondary)' : '#fbbf24',
+          cursor: 'pointer',
+        }}
+      >
+        {annotationsVisible ? '👁 Show' : '🚫 Hidden'}
+      </button>
 
       {/* AI actions */}
       <button
@@ -136,6 +190,19 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
       </button>
 
       <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+
+      {/* Help button */}
+      <button
+        onClick={() => setShowShortcutsHelp(true)}
+        title="Keyboard shortcuts (?)"
+        style={{
+          padding: '4px 8px', borderRadius: 5, fontSize: 13, fontWeight: 700,
+          background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+          color: 'var(--text-muted)', cursor: 'pointer',
+        }}
+      >
+        ?
+      </button>
 
       {/* AI status */}
       <div

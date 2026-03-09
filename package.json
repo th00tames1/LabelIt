@@ -37,6 +37,7 @@
     "@electron-toolkit/eslint-config-ts": "^2.0.0",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
+    "@electron/rebuild": "^4.0.3",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.7",
     "@types/react": "^19.2.14",

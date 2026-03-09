@@ -98,13 +98,29 @@ export default function LabelManager() {
               gap: 8,
             }}
           >
-            {/* Color swatch / picker */}
+            {/* Color swatch / picker — click to open full color picker */}
             <div style={{ position: 'relative' }}>
+              <input
+                type="color"
+                value={label.color}
+                onChange={(e) => handleColorChange(label.id, e.target.value)}
+                title="Click to change color"
+                style={{
+                  width: 18, height: 18, borderRadius: '50%',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  background: label.color,
+                  cursor: 'pointer', padding: 0,
+                  appearance: 'none', WebkitAppearance: 'none',
+                  overflow: 'hidden',
+                  opacity: 0, position: 'absolute', inset: 0,
+                }}
+              />
               <div
                 style={{
-                  width: 16, height: 16, borderRadius: '50%',
-                  background: label.color, cursor: 'pointer',
-                  border: '1px solid rgba(255,255,255,0.2)',
+                  width: 18, height: 18, borderRadius: '50%',
+                  background: label.color,
+                  border: '2px solid rgba(255,255,255,0.25)',
+                  cursor: 'pointer', pointerEvents: 'none',
                 }}
               />
             </div>
@@ -143,12 +159,13 @@ export default function LabelManager() {
               </span>
             )}
 
-            {/* Color picker inline */}
-            <div style={{ display: 'flex', gap: 3 }}>
-              {PRESET_COLORS.slice(0, 5).map((c) => (
+            {/* Color picker inline — all presets */}
+            <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', maxWidth: 64 }}>
+              {PRESET_COLORS.map((c) => (
                 <button
                   key={c}
                   onClick={() => handleColorChange(label.id, c)}
+                  title={c}
                   style={{
                     width: 10, height: 10, borderRadius: '50%',
                     background: c,

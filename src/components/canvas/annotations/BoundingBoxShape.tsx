@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { Rect, Transformer } from 'react-konva'
+import { Rect, Transformer, Text } from 'react-konva'
 import type Konva from 'konva'
 import type { Annotation, AnnotationGeometry, BBoxGeometry } from '../../../types'
 
@@ -8,6 +8,7 @@ interface Props {
   color: string
   isSelected: boolean
   imgX: number; imgY: number; imgW: number; imgH: number
+  labelName?: string
   onSelect: () => void
   onUpdateGeometry: (geo: AnnotationGeometry) => void
 }
@@ -15,6 +16,7 @@ interface Props {
 export default function BoundingBoxShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
+  labelName,
   onSelect, onUpdateGeometry,
 }: Props) {
   const rectRef = useRef<Konva.Rect>(null)
@@ -59,6 +61,11 @@ export default function BoundingBoxShape({
     onUpdateGeometry({ type: 'bbox', x: newX, y: newY, width: geo.width, height: geo.height })
   }
 
+  // Label tag shown above bbox — clamp so it doesn't go above canvas top
+  const tagH = 16
+  const tagY = y < tagH ? y : y - tagH
+  const showTag = !!labelName && labelName !== 'Unlabeled'
+
   return (
     <>
       <Rect
@@ -74,6 +81,31 @@ export default function BoundingBoxShape({
         onTransformEnd={handleTransformEnd}
         perfectDrawEnabled={false}
       />
+
+      {/* Class name label above the bbox */}
+      {showTag && (
+        <>
+          <Rect
+            x={x} y={tagY}
+            width={Math.min(w, Math.max(40, labelName!.length * 7 + 8))}
+            height={tagH}
+            fill={color}
+            cornerRadius={[2, 2, 0, 0]}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+          <Text
+            x={x + 4} y={tagY + 2}
+            text={labelName!}
+            fontSize={10}
+            fontStyle="bold"
+            fill="white"
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        </>
+      )}
+
       {/* Always rendered so useEffect can attach/detach nodes reactively */}
       <Transformer
         ref={transformerRef}

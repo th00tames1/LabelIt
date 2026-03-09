@@ -18,6 +18,7 @@ import { toLocalFileUrl } from '../../utils/paths'
 interface Props {
   image: Image
   activeTool: ToolType
+  onAnnotationCreated?: (annotationId: string) => void
 }
 
 const MIN_SCALE = 0.05
@@ -25,7 +26,7 @@ const MAX_SCALE = 40
 
 interface SAMPoint { x: number; y: number; label: 0 | 1 }
 
-export default function AnnotationCanvas({ image, activeTool }: Props) {
+export default function AnnotationCanvas({ image, activeTool, onAnnotationCreated }: Props) {
   const stageRef = useRef<Konva.Stage>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -57,7 +58,19 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
   const { annotations, selectedId, setSelectedId, createAnnotation, updateGeometry } =
     useAnnotationStore()
   const { labels } = useLabelStore()
-  const { activeLabelClassId } = useUIStore()
+  const { activeLabelClassId, annotationsVisible } = useUIStore()
+
+  // Wrapper: create annotation and notify parent for label quick-pick
+  const createAndNotify = useCallback(async (
+    imgId: string,
+    type: Parameters<typeof createAnnotation>[1],
+    geom: Parameters<typeof createAnnotation>[2],
+    labelId: Parameters<typeof createAnnotation>[3],
+  ) => {
+    const ann = await createAnnotation(imgId, type, geom, labelId)
+    onAnnotationCreated?.(ann.id)
+    return ann
+  }, [createAnnotation, onAnnotationCreated])
 
   // Fit image to canvas on load or image change
   useEffect(() => {
@@ -183,7 +196,7 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
           type: 'polygon',
           points: contour.map(([x, y]) => [x, y]),
         }
-        await createAnnotation(image.id, 'polygon', geometry, labelId)
+        await createAndNotify(image.id, 'polygon', geometry, labelId)
       }
     } else {
       // Point mode (or single contour from text): use the largest contour
@@ -192,13 +205,13 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
         type: 'polygon',
         points: largest.map(([x, y]) => [x, y]),
       }
-      await createAnnotation(image.id, 'polygon', geometry, labelId)
+      await createAndNotify(image.id, 'polygon', geometry, labelId)
     }
 
     setSamPoints([])
     setSamContours(null)
     setSamText('')
-  }, [samContours, samText, createAnnotation, image.id, getActiveLabelId])
+  }, [samContours, samText, createAndNotify, image.id, getActiveLabelId])
 
   // ─── Wheel zoom ─────────────────────────────────────────────────────────────
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -266,12 +279,12 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
       const h = Math.abs(bboxCurrent.y - bboxStart.y)
       if (w > 0.005 && h > 0.005) {
         const geometry: AnnotationGeometry = { type: 'bbox', x, y, width: w, height: h }
-        await createAnnotation(image.id, 'bbox', geometry, getActiveLabelId())
+        await createAndNotify(image.id, 'bbox', geometry, getActiveLabelId())
       }
       setBboxStart(null)
       setBboxCurrent(null)
     }
-  }, [activeTool, bboxStart, bboxCurrent, createAnnotation, image.id, getActiveLabelId])
+  }, [activeTool, bboxStart, bboxCurrent, createAndNotify, image.id, getActiveLabelId])
 
   // ─── Click: polygon vertex placement + keypoint placement ────────────────────
   const handleStageClick = useCallback(async (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -288,7 +301,7 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
             type: 'polygon',
             points: polygonPoints.map(({ x, y }) => [x, y]),
           }
-          await createAnnotation(image.id, 'polygon', geometry, getActiveLabelId())
+          await createAndNotify(image.id, 'polygon', geometry, getActiveLabelId())
           setPolygonPoints([])
           return
         }
@@ -302,7 +315,7 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
           type: 'keypoints',
           keypoints: [{ kp_def_id: '', x: norm.x, y: norm.y, visibility: 2 }],
         }
-        await createAnnotation(image.id, 'keypoints', geometry, getActiveLabelId())
+        await createAndNotify(image.id, 'keypoints', geometry, getActiveLabelId())
       }
     } else if (activeTool === 'sam') {
       // Left click = positive point
@@ -310,7 +323,7 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
       setSamPoints(newPoints)
       runSAMPrediction(newPoints).catch(console.error)
     }
-  }, [activeTool, polygonPoints, samPoints, getPointerNorm, createAnnotation, image.id, getActiveLabelId, runSAMPrediction])
+  }, [activeTool, polygonPoints, samPoints, getPointerNorm, createAndNotify, image.id, getActiveLabelId, runSAMPrediction])
 
   // SAM right-click = negative point
   const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -329,9 +342,9 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
       type: 'polygon',
       points: polygonPoints.map(({ x, y }) => [x, y]),
     }
-    await createAnnotation(image.id, 'polygon', geometry, getActiveLabelId())
+    await createAndNotify(image.id, 'polygon', geometry, getActiveLabelId())
     setPolygonPoints([])
-  }, [activeTool, polygonPoints, createAnnotation, image.id, getActiveLabelId])
+  }, [activeTool, polygonPoints, createAndNotify, image.id, getActiveLabelId])
 
   // Escape cancels in-progress drawing; Enter commits SAM
   useEffect(() => {
@@ -376,6 +389,11 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
     return labels.find((l) => l.id === labelClassId)?.color ?? '#888'
   }
 
+  const getLabelName = (labelClassId: string | null): string => {
+    if (!labelClassId) return 'Unlabeled'
+    return labels.find((l) => l.id === labelClassId)?.name ?? 'Unlabeled'
+  }
+
   const cursor =
     activeTool === 'bbox' || activeTool === 'polygon'
     || activeTool === 'keypoint' || activeTool === 'sam'
@@ -410,14 +428,16 @@ export default function AnnotationCanvas({ image, activeTool }: Props) {
           )}
         </Layer>
 
-        {/* Layer 2: Annotations */}
-        <Layer>
+        {/* Layer 2: Annotations — hidden when annotationsVisible is false (H key) */}
+        <Layer visible={annotationsVisible} listening={annotationsVisible}>
           {annotations.map((ann) => {
             const color = getLabelColor(ann.label_class_id)
+            const labelName = getLabelName(ann.label_class_id)
             const isSelected = ann.id === selectedId
             const shapeProps = {
               annotation: ann,
               color,
+              labelName,
               isSelected,
               imgX, imgY, imgW: dispW, imgH: dispH,
               onSelect: () => setSelectedId(ann.id),

@@ -141,13 +141,23 @@ function ImageItem({
           }}>
             {image.width}×{image.height}
           </div>
-          {/* Status */}
+          {/* Status + annotation count */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
             <div style={{
               width: 6, height: 6, borderRadius: '50%',
               background: statusColor[image.status] ?? '#555',
             }} />
             <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{image.status}</span>
+            {image.annotation_count > 0 && (
+              <span style={{
+                marginLeft: 'auto', fontSize: 9, fontWeight: 700,
+                background: 'rgba(99,102,241,0.2)', color: '#a5b4fc',
+                border: '1px solid rgba(99,102,241,0.3)',
+                borderRadius: 10, padding: '0px 5px',
+              }}>
+                {image.annotation_count}
+              </span>
+            )}
           </div>
         </div>
       </div>

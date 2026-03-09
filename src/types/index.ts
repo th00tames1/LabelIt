@@ -44,6 +44,7 @@ export interface Image {
   width: number; height: number; file_size: number
   status: ImageStatus; split: SplitType
   imported_at: number; sort_order: number
+  annotation_count: number   // computed: number of annotations on this image
 }
 
 export interface Annotation {

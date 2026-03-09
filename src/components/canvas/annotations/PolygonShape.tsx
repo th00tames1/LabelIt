@@ -1,4 +1,4 @@
-import { Line, Circle } from 'react-konva'
+import { Line, Circle, Text, Rect } from 'react-konva'
 import type Konva from 'konva'
 import type { Annotation, AnnotationGeometry, PolygonGeometry } from '../../../types'
 
@@ -7,6 +7,7 @@ interface Props {
   color: string
   isSelected: boolean
   imgX: number; imgY: number; imgW: number; imgH: number
+  labelName?: string
   onSelect: () => void
   onUpdateGeometry: (geo: AnnotationGeometry) => void
 }
@@ -14,6 +15,7 @@ interface Props {
 export default function PolygonShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
+  labelName,
   onSelect, onUpdateGeometry,
 }: Props) {
   const geo = annotation.geometry as PolygonGeometry
@@ -84,6 +86,18 @@ export default function PolygonShape({
     onUpdateGeometry({ ...geo, points: newPoints })
   }
 
+  // Centroid for label placement
+  const cx = flatPoints.length >= 2
+    ? flatPoints.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0) / (flatPoints.length / 2)
+    : 0
+  const cy = flatPoints.length >= 2
+    ? flatPoints.filter((_, i) => i % 2 === 1).reduce((a, b) => a + b, 0) / (flatPoints.length / 2)
+    : 0
+
+  const showTag = isClosed && !!labelName && labelName !== 'Unlabeled'
+  const tagW = Math.max(40, (labelName?.length ?? 0) * 7 + 8)
+  const tagH = 16
+
   return (
     <>
       <Line
@@ -97,6 +111,31 @@ export default function PolygonShape({
         perfectDrawEnabled={false}
         hitStrokeWidth={8}
       />
+
+      {/* Class name label at polygon centroid */}
+      {showTag && (
+        <>
+          <Rect
+            x={cx - tagW / 2} y={cy - tagH / 2}
+            width={tagW} height={tagH}
+            fill={color}
+            opacity={0.85}
+            cornerRadius={3}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+          <Text
+            x={cx - tagW / 2 + 4} y={cy - tagH / 2 + 3}
+            text={labelName!}
+            fontSize={10}
+            fontStyle="bold"
+            fill="white"
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        </>
+      )}
+
       {/* Vertex handles — right-click to delete, drag to move */}
       {isSelected && geo.points.map(([nx, ny], i) => (
         <Circle

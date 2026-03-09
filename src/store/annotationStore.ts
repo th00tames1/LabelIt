@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { Annotation, AnnotationGeometry, AnnotationType } from '../types'
-import { annotationApi } from '../api/ipc'
+import { annotationApi, imageApi } from '../api/ipc'
+import { useImageStore } from './imageStore'
 
 interface UndoRecord {
   type: 'create' | 'update' | 'delete'
@@ -60,6 +61,12 @@ export const useAnnotationStore = create<AnnotationState>()(
     clear: () => set({ annotations: [], selectedId: null, undoStack: [], redoStack: [] }),
 
     createAnnotation: async (imageId, annotationType, geometry, labelClassId) => {
+      // Auto-advance image status: unlabeled → in_progress on first annotation
+      const isFirst = get().annotations.length === 0
+      if (isFirst) {
+        imageApi.updateStatus(imageId, 'in_progress').catch(() => {/* best-effort */})
+      }
+
       // Optimistic — add placeholder
       const tempId = `temp-${Date.now()}`
       const now = Date.now()
@@ -83,6 +90,11 @@ export const useAnnotationStore = create<AnnotationState>()(
         s.undoStack.push({ type: 'create', annotation: created })
         s.redoStack = []
       })
+
+      // Refresh image in sidebar to update annotation_count badge
+      imageApi.get(imageId).then((img) => {
+        if (img) useImageStore.getState().updateImageInList(img)
+      }).catch(() => {/* best-effort */})
 
       return created
     },
@@ -130,6 +142,11 @@ export const useAnnotationStore = create<AnnotationState>()(
       })
 
       await annotationApi.delete(id)
+
+      // Refresh image in sidebar to update annotation_count badge
+      imageApi.get(annotation.image_id).then((img) => {
+        if (img) useImageStore.getState().updateImageInList(img)
+      }).catch(() => {/* best-effort */})
     },
 
     duplicateAnnotation: async (id) => {

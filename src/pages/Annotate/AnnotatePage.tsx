@@ -4,6 +4,8 @@ import { useLabelStore } from '../../store/labelStore'
 import { useAnnotationStore } from '../../store/annotationStore'
 import { useUIStore } from '../../store/uiStore'
 import { imageApi } from '../../api/ipc'
+import LabelQuickPick from '../../components/LabelQuickPick'
+import ShortcutsHelp from '../../components/ShortcutsHelp'
 import TopBar from '../../components/layout/TopBar/TopBar'
 import ImageBrowser from '../../components/layout/Sidebar/ImageBrowser'
 import AnnotationCanvas from '../../components/canvas/AnnotationCanvas'
@@ -18,16 +20,22 @@ interface Props {
 }
 
 export default function AnnotatePage({ onGoHome }: Props) {
-  const { images, setImages, activeImageId, setActiveImageId } = useImageStore()
+  const { images, setImages, activeImageId, setActiveImageId, updateImageInList } = useImageStore()
   const { labels, load: loadLabels } = useLabelStore()
   const { loadForImage, clear, selectedId, deleteAnnotation, duplicateAnnotation, undo, redo } =
     useAnnotationStore()
-  const { activeTool, setActiveTool, setActiveLabelClassId } = useUIStore()
+  const {
+    activeTool, setActiveTool, setActiveLabelClassId,
+    activeLabelClassId,
+    toggleAnnotationsVisible, showShortcutsHelp, setShowShortcutsHelp,
+  } = useUIStore()
   const [showExport, setShowExport] = useState(false)
   const [showAutoSplit, setShowAutoSplit] = useState(false)
   const [showAutoLabel, setShowAutoLabel] = useState(false)
+  // Quick-label popup: shown after drawing a new annotation
+  const [quickPickAnnotationId, setQuickPickAnnotationId] = useState<string | null>(null)
 
-  // Load images and labels on mount
+  // Load images and labels on mount — auto-select first unlabeled image
   useEffect(() => {
     const load = async () => {
       const [imgs] = await Promise.all([
@@ -36,8 +44,11 @@ export default function AnnotatePage({ onGoHome }: Props) {
       ])
       setImages(imgs)
       if (imgs.length > 0) {
-        setActiveImageId(imgs[0].id)
-        await loadForImage(imgs[0].id)
+        // Prefer first unlabeled image, fall back to first image
+        const firstUnlabeled = imgs.find((img) => img.status === 'unlabeled')
+        const startImg = firstUnlabeled ?? imgs[0]
+        setActiveImageId(startImg.id)
+        await loadForImage(startImg.id)
       }
     }
     load().catch(console.error)
@@ -65,21 +76,64 @@ export default function AnnotatePage({ onGoHome }: Props) {
 
       // ─── Image navigation ──────────────────────────────────────────────────
       const currentIdx = images.findIndex((img) => img.id === activeImageId)
-      if (e.key === 'Tab' && !e.shiftKey) {
+
+      // Tab / ArrowRight: next image
+      if ((e.key === 'Tab' && !e.shiftKey) || e.key === 'ArrowRight') {
         e.preventDefault()
         const next = images[currentIdx + 1]
         if (next) handleSelectImage(next.id)
         return
       }
-      if (e.key === 'Tab' && e.shiftKey) {
+      // Shift+Tab / ArrowLeft: previous image
+      if ((e.key === 'Tab' && e.shiftKey) || e.key === 'ArrowLeft') {
         e.preventDefault()
         const prev = images[currentIdx - 1]
         if (prev) handleSelectImage(prev.id)
         return
       }
+      // N: jump to next unlabeled image
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault()
+        const nextUnlabeled = images.find(
+          (img, idx) => idx > currentIdx && img.status === 'unlabeled'
+        ) ?? images.find((img) => img.status === 'unlabeled')
+        if (nextUnlabeled) handleSelectImage(nextUnlabeled.id)
+        return
+      }
 
       // ─── Tool shortcuts (no modifier) ──────────────────────────────────────
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Space: mark current image as "labeled" and jump to next unlabeled
+        if (e.key === ' ') {
+          e.preventDefault()
+          if (activeImageId) {
+            imageApi.updateStatus(activeImageId, 'labeled')
+              .then(async () => {
+                const updated = await imageApi.get(activeImageId)
+                if (updated) updateImageInList(updated)
+                // Jump to next unlabeled
+                const nextUnlabeled = images.find(
+                  (img, idx) => idx > currentIdx && img.status === 'unlabeled'
+                ) ?? images.find((img) => img.status === 'unlabeled' && img.id !== activeImageId)
+                if (nextUnlabeled) handleSelectImage(nextUnlabeled.id)
+              })
+              .catch(console.error)
+          }
+          return
+        }
+
+        // H: toggle annotation visibility
+        if (e.key === 'h' || e.key === 'H') {
+          toggleAnnotationsVisible()
+          return
+        }
+
+        // ?: show keyboard shortcuts help
+        if (e.key === '?') {
+          setShowShortcutsHelp(true)
+          return
+        }
+
         const toolMap: Record<string, ToolType> = {
           v: 'select', w: 'bbox', e: 'polygon', k: 'keypoint', s: 'sam',
         }
@@ -131,6 +185,8 @@ export default function AnnotatePage({ onGoHome }: Props) {
     activeTool, setActiveTool,
     selectedId, deleteAnnotation, duplicateAnnotation, undo, redo,
     labels, setActiveLabelClassId,
+    activeLabelClassId, toggleAnnotationsVisible, setShowShortcutsHelp,
+    updateImageInList,
   ])
 
   const activeImage = images.find((img) => img.id === activeImageId) ?? null
@@ -158,6 +214,7 @@ export default function AnnotatePage({ onGoHome }: Props) {
             <AnnotationCanvas
               image={activeImage}
               activeTool={activeTool}
+              onAnnotationCreated={(id) => { if (!activeLabelClassId) setQuickPickAnnotationId(id) }}
             />
           ) : (
             <div style={{
@@ -188,6 +245,17 @@ export default function AnnotatePage({ onGoHome }: Props) {
           }}
         />
       )}
+      {/* Quick label picker: shown after drawing a new annotation when no label is pre-selected */}
+      {quickPickAnnotationId && (
+        <LabelQuickPick
+          annotationId={quickPickAnnotationId}
+          onDismiss={() => setQuickPickAnnotationId(null)}
+        />
+      )}
+
+      {/* Keyboard shortcuts help overlay */}
+      {showShortcutsHelp && <ShortcutsHelp />}
+
       {showAutoSplit && (
         <AutoSplitDialog
           totalImages={images.length}

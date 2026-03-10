@@ -38,6 +38,8 @@ export default function LanguageSwitcher({ compact = false }: Props) {
             key={value}
             onClick={() => setLanguage(value).catch(console.error)}
             style={{
+              minWidth: compact ? 34 : 78,
+              height: compact ? 28 : 32,
               padding: compact ? '4px 8px' : '5px 10px',
               borderRadius: 6,
               border: 'none',
@@ -46,6 +48,7 @@ export default function LanguageSwitcher({ compact = false }: Props) {
               fontWeight: 600,
               background: active ? 'var(--accent)' : 'transparent',
               color: active ? 'white' : 'var(--text-secondary)',
+              flexShrink: 0,
             }}
           >
             {buttonLabel(value)}

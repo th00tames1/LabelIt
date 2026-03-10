@@ -149,9 +149,9 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
             {text.description}
           </div>
 
-          {numField(text.train, 'train', train, '#8b5cf6')}
-          {numField(text.val, 'val', val, '#06b6d4')}
-          {numField(text.test, 'test', test, '#f97316')}
+          {numField(text.train, 'train', train, 'var(--split-train)')}
+          {numField(text.val, 'val', val, 'var(--split-val)')}
+          {numField(text.test, 'test', test, 'var(--split-test)')}
 
           {/* Sum indicator */}
           <div style={{
@@ -172,9 +172,9 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
               display: 'flex', borderRadius: 6, overflow: 'hidden', height: 8,
             }}>
               {[
-                { pct: train, color: '#8b5cf6' },
-                { pct: val, color: '#06b6d4' },
-                { pct: test, color: '#f97316' },
+                { pct: train, color: 'var(--split-train)' },
+                { pct: val, color: 'var(--split-val)' },
+                { pct: test, color: 'var(--split-test)' },
               ].map(({ pct, color }, i) => (
                 pct > 0 && <div key={i} style={{ flex: pct, background: color }} />
               ))}
@@ -208,7 +208,7 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
           <button
             onClick={onClose}
             style={{
-              padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 500,
+              minWidth: 96, minHeight: 36, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
               background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
               color: 'var(--text-secondary)', cursor: 'pointer',
             }}
@@ -220,7 +220,7 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
               onClick={handleRun}
               disabled={isRunning || invalid}
               style={{
-                padding: '8px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600,
+                minWidth: 128, minHeight: 36, padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
                 background: invalid || isRunning ? 'var(--bg-tertiary)' : 'var(--accent)',
                 border: 'none', color: 'white',
                 cursor: invalid || isRunning ? 'not-allowed' : 'pointer',

@@ -4,6 +4,7 @@ import type { Image } from '../types'
 import { useI18n } from '../i18n'
 
 type Target = 'current' | 'unlabeled' | 'all'
+type ModelChoice = 'yolo11n' | 'yolo11s' | 'yolo11m' | 'yolo11l' | 'yolo11x' | 'custom'
 
 interface Props {
   images: Image[]
@@ -15,7 +16,8 @@ interface Props {
 
 export default function AutoLabelDialog({ images, activeImageId, onClose, onComplete }: Props) {
   const { language, t } = useI18n()
-  const [modelPath, setModelPath] = useState('yolo11n')
+  const [selectedModel, setSelectedModel] = useState<ModelChoice>('yolo11n')
+  const [customModelPath, setCustomModelPath] = useState('')
   const [confidence, setConfidence] = useState(0.25)
   const [iou, setIou] = useState(0.45)
   const [target, setTarget] = useState<Target>('current')
@@ -39,7 +41,10 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
         title: '자동 라벨링',
         subtitle: 'YOLO 객체 탐지 · 결과는 수동 검토가 필요합니다',
         model: '모델',
-        modelHint: 'Ultralytics 형식: yolo11n · yolo11s · yolo11m · yolo11l · yolo11x 또는 전체 .pt 경로',
+        modelHint: '기본 YOLO11 모델 목록에서 선택하세요. 필요한 경우 사용자 지정 경로를 사용할 수 있습니다.',
+        modelCustom: '사용자 지정 모델 경로',
+        modelCustomPlaceholder: '절대 .pt 경로 입력',
+        modelCustomOption: '사용자 지정 경로...',
         confidence: '신뢰도',
         iou: 'IOU 임계값',
         runOn: '실행 대상',
@@ -65,7 +70,10 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
         title: 'Auto Label',
         subtitle: 'YOLO object detection · results need manual review',
         model: 'Model',
-        modelHint: 'Ultralytics format: yolo11n · yolo11s · yolo11m · yolo11l · yolo11x — or full .pt path',
+        modelHint: 'Choose from the built-in YOLO11 presets. Use a custom path only if you need a local .pt file.',
+        modelCustom: 'Custom model path',
+        modelCustomPlaceholder: 'Enter absolute .pt path',
+        modelCustomOption: 'Custom path...',
         confidence: 'Confidence',
         iou: 'IOU threshold',
         runOn: 'Run on',
@@ -87,6 +95,19 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
         placeholder: 'yolo11n  (name or absolute .pt path)',
         failed: 'Auto-label failed',
       }
+
+  const modelOptions: { value: ModelChoice; label: string }[] = [
+    { value: 'yolo11n', label: 'YOLO11 Nano' },
+    { value: 'yolo11s', label: 'YOLO11 Small' },
+    { value: 'yolo11m', label: 'YOLO11 Medium' },
+    { value: 'yolo11l', label: 'YOLO11 Large' },
+    { value: 'yolo11x', label: 'YOLO11 XLarge' },
+    { value: 'custom', label: text.modelCustomOption },
+  ]
+
+  const resolvedModelPath = selectedModel === 'custom'
+    ? customModelPath.trim()
+    : selectedModel
 
   // Derived: which images will be processed
   const targetImages = (): Image[] => {
@@ -117,7 +138,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
         const chunk = batch.slice(i, i + CHUNK)
         const resp = await yoloApi.autoLabel({
           imageIds: chunk.map((img) => img.id),
-          modelPath: modelPath.trim() || 'yolo11n',
+          modelPath: resolvedModelPath || 'yolo11n',
           confidenceThreshold: confidence,
           iouThreshold: iou,
         })
@@ -188,20 +209,48 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
               {text.model}
             </label>
-            <input
-              type="text"
-              value={modelPath}
-              onChange={(e) => setModelPath(e.target.value)}
-              placeholder={text.placeholder}
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value as ModelChoice)}
               disabled={isRunning}
               style={{
                 width: '100%', boxSizing: 'border-box',
-                padding: '7px 10px', borderRadius: 6,
+                padding: '8px 12px', borderRadius: 8,
                 border: '1px solid var(--border)', background: 'var(--bg-tertiary)',
-                color: 'var(--text-primary)', fontSize: 13, fontFamily: 'monospace',
+                color: 'var(--text-primary)', fontSize: 13, minHeight: 36,
               }}
-            />
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+            >
+              {modelOptions.map((option) => (
+                <option
+                  key={option.value}
+                  value={option.value}
+                  style={{ background: '#ffffff', color: '#111111' }}
+                >
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {selectedModel === 'custom' && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  {text.modelCustom}
+                </div>
+                <input
+                  type="text"
+                  value={customModelPath}
+                  onChange={(e) => setCustomModelPath(e.target.value)}
+                  placeholder={text.modelCustomPlaceholder}
+                  disabled={isRunning}
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '8px 12px', borderRadius: 8,
+                    border: '1px solid var(--border)', background: 'var(--bg-tertiary)',
+                    color: 'var(--text-primary)', fontSize: 13, fontFamily: 'monospace', minHeight: 36,
+                  }}
+                />
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>
               {text.modelHint}
             </div>
           </div>
@@ -244,8 +293,8 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
                   onClick={() => setTarget(t)}
                   disabled={isRunning}
                   style={{
-                    flex: 1, padding: '6px 4px', borderRadius: 6, fontSize: 11, fontWeight: 500,
-                    background: target === t ? 'rgba(99,102,241,0.2)' : 'var(--bg-tertiary)',
+                    flex: 1, minHeight: 34, padding: '6px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                    background: target === t ? 'rgba(var(--accent-rgb),0.18)' : 'var(--bg-tertiary)',
                     border: `1px solid ${target === t ? 'var(--accent)' : 'var(--border)'}`,
                     color: target === t ? 'var(--accent)' : 'var(--text-secondary)',
                     cursor: isRunning ? 'not-allowed' : 'pointer',
@@ -314,7 +363,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
                 ))}
               </div>
               {newClasses.length > 0 && (
-                <div style={{ fontSize: 11, color: '#facc15', marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 4 }}>
                   {text.autoCreated}{newClasses.join(', ')}
                 </div>
               )}
@@ -348,7 +397,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
               onClick={onClose}
               disabled={isRunning}
               style={{
-                padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 500,
+                minWidth: 108, minHeight: 36, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
                 color: 'var(--text-secondary)',
                 cursor: isRunning ? 'not-allowed' : 'pointer',
@@ -360,13 +409,15 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
             {!results && (
               <button
                 onClick={handleRun}
-                disabled={isRunning || batch.length === 0}
+                disabled={isRunning || batch.length === 0 || (selectedModel === 'custom' && !customModelPath.trim())}
                 style={{
-                  padding: '8px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600,
-                  background: isRunning || batch.length === 0 ? 'var(--bg-tertiary)' : 'var(--accent)',
+                  minWidth: 172, minHeight: 36, padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                  background: isRunning || batch.length === 0 || (selectedModel === 'custom' && !customModelPath.trim())
+                    ? 'var(--bg-tertiary)'
+                    : 'var(--accent)',
                   border: 'none', color: 'white',
-                  cursor: isRunning || batch.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: isRunning || batch.length === 0 ? 0.6 : 1,
+                  cursor: isRunning || batch.length === 0 || (selectedModel === 'custom' && !customModelPath.trim()) ? 'not-allowed' : 'pointer',
+                  opacity: isRunning || batch.length === 0 || (selectedModel === 'custom' && !customModelPath.trim()) ? 0.6 : 1,
                 }}
               >
                 {isRunning ? text.runningButton : text.run}
@@ -376,7 +427,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
               <button
                 onClick={() => { setResults(null); setProgress(0) }}
                 style={{
-                  padding: '8px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600,
+                  minWidth: 172, minHeight: 36, padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
                   background: 'var(--accent)', border: 'none', color: 'white', cursor: 'pointer',
                 }}
               >

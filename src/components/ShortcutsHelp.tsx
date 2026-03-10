@@ -200,7 +200,7 @@ export default function ShortcutsHelp() {
           {groups.map((g) => (
             <div key={g.title}>
               <div style={{
-                fontSize: 11, fontWeight: 700, color: '#6366f1',
+                fontSize: 11, fontWeight: 700, color: 'var(--accent)',
                 letterSpacing: '0.07em', textTransform: 'uppercase',
                 marginBottom: 8, paddingBottom: 5,
                 borderBottom: '1px solid #1e1e2e',

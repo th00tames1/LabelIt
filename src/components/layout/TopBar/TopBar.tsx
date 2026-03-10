@@ -21,12 +21,16 @@ const TOOLS: { type: ToolType; labelKey: string; shortcut: string }[] = [
   { type: 'sam', labelKey: 'sam', shortcut: 'S' },
 ]
 
+const TOOL_BUTTON_WIDTH = 94
+const CONTROL_HEIGHT = 30
+
 export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }: Props) {
   const project = useProjectStore((s) => s.currentProject)
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject)
   const activeTool = useUIStore((s) => s.activeTool)
   const setActiveTool = useUIStore((s) => s.setActiveTool)
   const sidecarOnline = useUIStore((s) => s.sidecarOnline)
+  const sidecarRuntime = useUIStore((s) => s.sidecarRuntime)
   const activeLabelClassId = useUIStore((s) => s.activeLabelClassId)
   const annotationsVisible = useUIStore((s) => s.annotationsVisible)
   const toggleAnnotationsVisible = useUIStore((s) => s.toggleAnnotationsVisible)
@@ -36,6 +40,18 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
 
   const activeLabel = labels.find((l) => l.id === activeLabelClassId)
   const drawingLocked = labels.length === 0
+  const aiStatusText = !sidecarOnline
+    ? t('topbar.aiOff')
+    : sidecarRuntime?.acceleration === 'gpu'
+      ? t('topbar.aiGpu')
+      : sidecarRuntime?.acceleration === 'cpu'
+        ? t('topbar.aiCpu')
+        : t('topbar.aiOn')
+  const aiStatusTitle = !sidecarOnline
+    ? t('topbar.aiOffline')
+    : sidecarRuntime != null
+      ? `${aiStatusText} · ${sidecarRuntime.device_label}`
+      : t('topbar.aiOn')
   const toolButtons = TOOLS.map((tool) => {
     const label = tool.labelKey === 'sam' ? 'SAM' : t(tool.labelKey)
     const disabled = (tool.type !== 'select' && drawingLocked)
@@ -70,11 +86,14 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
       <button
         onClick={handleClose}
         style={{
+          minWidth: 84,
+          height: CONTROL_HEIGHT,
           padding: '4px 10px',
           borderRadius: 5,
           color: 'var(--text-secondary)',
           fontSize: 13,
           background: 'none',
+          flexShrink: 0,
         }}
         title={t('topbar.backHome')}
       >
@@ -94,10 +113,12 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
       <div
         style={{
           display: 'flex', alignItems: 'center', gap: 6,
+          minWidth: 140,
+          height: CONTROL_HEIGHT,
           padding: '3px 10px', borderRadius: 5,
           background: activeLabel ? `${activeLabel.color}22` : 'var(--bg-tertiary)',
           border: `1px solid ${activeLabel ? activeLabel.color + '55' : 'var(--border)'}`,
-          minWidth: 120,
+          flexShrink: 0,
         }}
         title={drawingLocked
           ? t('topbar.activeLabelMissingTitle')
@@ -124,13 +145,15 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
       <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
 
       {/* Tool selector */}
-      <div style={{ display: 'flex', gap: 4 }}>
+      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
         {toolButtons.map((tool) => (
           <button
             key={tool.type}
             onClick={() => setActiveTool(tool.type)}
             title={tool.title}
             style={{
+              width: TOOL_BUTTON_WIDTH,
+              height: CONTROL_HEIGHT,
               padding: '4px 10px',
               borderRadius: 5,
               fontSize: 12,
@@ -140,6 +163,8 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
               border: `1px solid ${activeTool === tool.type ? 'var(--accent)' : 'var(--border)'}`,
               opacity: tool.disabled ? 0.4 : 1,
               cursor: tool.disabled ? 'not-allowed' : 'pointer',
+              boxSizing: 'border-box',
+              flexShrink: 0,
             }}
             disabled={tool.disabled}
           >
@@ -156,11 +181,12 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
         onClick={toggleAnnotationsVisible}
         title={annotationsVisible ? t('topbar.hideAnnotations') : t('topbar.showAnnotations')}
         style={{
-          padding: '4px 10px', borderRadius: 5, fontSize: 12,
-          background: annotationsVisible ? 'var(--bg-tertiary)' : 'rgba(234,179,8,0.15)',
-          border: `1px solid ${annotationsVisible ? 'var(--border)' : 'rgba(234,179,8,0.5)'}`,
-          color: annotationsVisible ? 'var(--text-secondary)' : '#fbbf24',
+          width: 104, height: CONTROL_HEIGHT, padding: '4px 10px', borderRadius: 5, fontSize: 12,
+          background: annotationsVisible ? 'var(--bg-tertiary)' : 'rgba(var(--warning-rgb),0.16)',
+          border: `1px solid ${annotationsVisible ? 'var(--border)' : 'rgba(var(--warning-rgb),0.45)'}`,
+          color: annotationsVisible ? 'var(--text-secondary)' : 'var(--warning)',
           cursor: 'pointer',
+          flexShrink: 0,
         }}
       >
         {annotationsVisible ? `👁 ${t('topbar.visibilityVisible')}` : `🚫 ${t('topbar.visibilityHidden')}`}
@@ -172,12 +198,13 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
         disabled={!sidecarOnline}
         title={sidecarOnline ? t('topbar.autoLabelTitle') : t('topbar.aiOffline')}
         style={{
-          padding: '4px 12px', borderRadius: 5, fontSize: 12, fontWeight: 600,
-          background: sidecarOnline ? 'rgba(139,92,246,0.2)' : 'var(--bg-tertiary)',
-          border: `1px solid ${sidecarOnline ? 'rgba(139,92,246,0.5)' : 'var(--border)'}`,
-          color: sidecarOnline ? '#a78bfa' : 'var(--text-muted)',
+          width: 114, height: CONTROL_HEIGHT, padding: '4px 12px', borderRadius: 5, fontSize: 12, fontWeight: 600,
+          background: sidecarOnline ? 'rgba(var(--accent-rgb),0.16)' : 'var(--bg-tertiary)',
+          border: `1px solid ${sidecarOnline ? 'rgba(var(--accent-rgb),0.42)' : 'var(--border)'}`,
+          color: sidecarOnline ? '#ffd6c7' : 'var(--text-muted)',
           cursor: sidecarOnline ? 'pointer' : 'not-allowed',
           opacity: sidecarOnline ? 1 : 0.5,
+          flexShrink: 0,
         }}
       >
         {`⚡ ${t('topbar.autoLabel')}`}
@@ -188,9 +215,10 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           onClick={onAutoSplit}
           title={t('topbar.autoSplitTitle')}
           style={{
-          padding: '4px 10px', borderRadius: 5, fontSize: 12, fontWeight: 500,
+          width: 72, height: CONTROL_HEIGHT, padding: '4px 10px', borderRadius: 5, fontSize: 12, fontWeight: 500,
           background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
           color: 'var(--text-secondary)', cursor: 'pointer',
+          flexShrink: 0,
         }}
         >
           {t('topbar.autoSplit')}
@@ -199,9 +227,10 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           onClick={onExport}
           title={t('topbar.exportTitle')}
           style={{
-          padding: '4px 14px', borderRadius: 5, fontSize: 12, fontWeight: 600,
+          width: 78, height: CONTROL_HEIGHT, padding: '4px 14px', borderRadius: 5, fontSize: 12, fontWeight: 600,
           background: 'var(--accent)', border: 'none',
           color: 'white', cursor: 'pointer',
+          flexShrink: 0,
         }}
         >
           {t('topbar.export')}
@@ -214,9 +243,10 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           onClick={() => setShowShortcutsHelp(true)}
           title={t('topbar.shortcutsTitle')}
           style={{
-          padding: '4px 8px', borderRadius: 5, fontSize: 13, fontWeight: 700,
+          width: 32, height: CONTROL_HEIGHT, padding: '4px 8px', borderRadius: 5, fontSize: 13, fontWeight: 700,
           background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
           color: 'var(--text-muted)', cursor: 'pointer',
+          flexShrink: 0,
         }}
       >
         {t('topbar.shortcuts')}
@@ -226,15 +256,15 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
 
       {/* AI status */}
       <div
-        style={{ display: 'flex', alignItems: 'center', gap: 5 }}
-        title={sidecarOnline ? t('topbar.aiOn') : t('topbar.aiOffline')}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, minWidth: 84, flexShrink: 0 }}
+        title={aiStatusTitle}
       >
         <div style={{
           width: 8, height: 8, borderRadius: '50%',
           background: sidecarOnline ? 'var(--success)' : '#555',
         }} />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          {sidecarOnline ? t('topbar.aiOn') : t('topbar.aiOff')}
+          {aiStatusText}
         </span>
       </div>
     </div>

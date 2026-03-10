@@ -1,5 +1,7 @@
 // Typed fetch() wrappers for the Python AI sidecar (port 7842)
 
+import type { SidecarHealth, SidecarRuntimeInfo } from '../types'
+
 const BASE_URL = 'http://127.0.0.1:7842'
 
 async function post<T>(path: string, body: unknown, timeoutMs = 300_000): Promise<T> {
@@ -30,6 +32,7 @@ export interface SAMPredictResponse {
   processing_time_ms: number
   /** "point" | "text" — which SAM 3 mode was used */
   mode: 'point' | 'text'
+  runtime: SidecarRuntimeInfo
 }
 
 export interface YOLODetection {
@@ -51,12 +54,13 @@ export interface YOLODetectResponse {
 }
 
 export const sidecarClient = {
-  health: async (): Promise<boolean> => {
+  health: async (): Promise<SidecarHealth | null> => {
     try {
       const res = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(2000) })
-      return res.ok
+      if (!res.ok) return null
+      return res.json() as Promise<SidecarHealth>
     } catch {
-      return false
+      return null
     }
   },
 

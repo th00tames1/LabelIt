@@ -135,8 +135,8 @@ export default function AnnotationList() {
             marginBottom: 6,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ fontSize: 10, color: '#fbbf24' }}>⚡</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#fbbf24' }}>
+              <span style={{ fontSize: 10, color: 'var(--warning)' }}>⚡</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)' }}>
                 {t('annotationList.autoToReview', { count: autoCount, suffix: autoCount === 1 ? '' : 's' })}
               </span>
             </div>
@@ -144,9 +144,9 @@ export default function AnnotationList() {
               onClick={() => setFilterAuto((v) => !v)}
               style={{
                 fontSize: 10, padding: '2px 7px', borderRadius: 4,
-                background: filterAuto ? '#fbbf24' : 'transparent',
-                border: `1px solid ${filterAuto ? '#fbbf24' : 'rgba(251,191,36,0.4)'}`,
-                color: filterAuto ? '#000' : '#fbbf24',
+                background: filterAuto ? 'var(--warning)' : 'transparent',
+                border: `1px solid ${filterAuto ? 'var(--warning)' : 'rgba(var(--warning-rgb),0.45)'}`,
+                color: filterAuto ? '#20150a' : 'var(--warning)',
                 cursor: 'pointer', fontWeight: 600,
               }}
             >
@@ -242,8 +242,8 @@ function AnnotationItem({
         gap: 0,
         background: isSelected
           ? 'var(--bg-hover)'
-          : isAuto ? 'rgba(234,179,8,0.04)' : 'transparent',
-        borderLeft: `2px solid ${isSelected ? labelColor : isAuto ? '#fbbf24' : 'transparent'}`,
+          : isAuto ? 'rgba(var(--warning-rgb),0.06)' : 'transparent',
+        borderLeft: `2px solid ${isSelected ? labelColor : isAuto ? 'var(--warning)' : 'transparent'}`,
         position: 'relative',
       }}
     >
@@ -272,7 +272,7 @@ function AnnotationItem({
 
           {/* Source / confidence */}
           {annotation.source !== 'manual' && (
-            <span style={{ fontSize: 10, color: '#fbbf24', display: 'block', marginTop: 1 }}>
+            <span style={{ fontSize: 10, color: 'var(--warning)', display: 'block', marginTop: 1 }}>
               yolo_auto{annotation.confidence != null ? ` · ${(annotation.confidence * 100).toFixed(0)}%` : ''}
             </span>
           )}

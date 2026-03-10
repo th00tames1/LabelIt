@@ -31,18 +31,48 @@ interface ItemData {
 }
 
 const STATUS_OPTIONS: { value: ImageStatus; color: string }[] = [
-  { value: 'unlabeled', color: '#6b7280' },
-  { value: 'in_progress', color: '#f59e0b' },
-  { value: 'labeled', color: '#22c55e' },
-  { value: 'approved', color: '#3b82f6' },
+  { value: 'unlabeled', color: 'var(--status-unlabeled)' },
+  { value: 'in_progress', color: 'var(--status-in-progress)' },
+  { value: 'labeled', color: 'var(--status-labeled)' },
+  { value: 'approved', color: 'var(--status-approved)' },
 ]
 
 const SPLIT_OPTIONS: { value: SplitType; color: string }[] = [
-  { value: 'train', color: '#8b5cf6' },
-  { value: 'val', color: '#06b6d4' },
-  { value: 'test', color: '#f97316' },
-  { value: 'unassigned', color: '#6b7280' },
+  { value: 'train', color: 'var(--split-train)' },
+  { value: 'val', color: 'var(--split-val)' },
+  { value: 'test', color: 'var(--split-test)' },
+  { value: 'unassigned', color: 'var(--split-unassigned)' },
 ]
+
+const selectWrapStyle: React.CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+}
+
+const selectFieldStyle: React.CSSProperties = {
+  width: '100%',
+  minHeight: 32,
+  fontSize: 11,
+  padding: '6px 28px 6px 8px',
+  borderRadius: 8,
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-primary)',
+  border: '1px solid var(--border)',
+  appearance: 'none',
+  WebkitAppearance: 'none',
+  MozAppearance: 'none',
+}
+
+const selectArrowStyle: React.CSSProperties = {
+  position: 'absolute',
+  right: 10,
+  top: '50%',
+  transform: 'translateY(-50%)',
+  color: 'var(--text-muted)',
+  fontSize: 11,
+  pointerEvents: 'none',
+}
 
 function ImageItem({
   index, style, data,
@@ -56,17 +86,17 @@ function ImageItem({
   const { language, statusLabel } = useI18n()
 
   const statusColor: Record<string, string> = {
-    unlabeled: '#6b7280',
-    in_progress: '#f59e0b',
-    labeled: '#22c55e',
-    approved: '#3b82f6',
+    unlabeled: 'var(--status-unlabeled)',
+    in_progress: 'var(--status-in-progress)',
+    labeled: 'var(--status-labeled)',
+    approved: 'var(--status-approved)',
   }
 
   const splitBadge: Record<string, { label: string; color: string }> = {
-    train: { label: language === 'ko' ? '학' : 'T', color: '#8b5cf6' },
-    val: { label: language === 'ko' ? '검' : 'V', color: '#06b6d4' },
-    test: { label: language === 'ko' ? '테' : 'E', color: '#f97316' },
-    unassigned: { label: '-', color: '#6b7280' },
+    train: { label: language === 'ko' ? '학' : 'T', color: 'var(--split-train)' },
+    val: { label: language === 'ko' ? '검' : 'V', color: 'var(--split-val)' },
+    test: { label: language === 'ko' ? '테' : 'E', color: 'var(--split-test)' },
+    unassigned: { label: '-', color: 'var(--split-unassigned)' },
   }
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -153,8 +183,8 @@ function ImageItem({
             {image.annotation_count > 0 && (
               <span style={{
                 marginLeft: 'auto', fontSize: 9, fontWeight: 700,
-                background: 'rgba(99,102,241,0.2)', color: '#a5b4fc',
-                border: '1px solid rgba(99,102,241,0.3)',
+                background: 'rgba(var(--accent-rgb),0.14)', color: '#ffd7c5',
+                border: '1px solid rgba(var(--accent-rgb),0.26)',
                 borderRadius: 10, padding: '0px 5px',
               }}>
                 {image.annotation_count}
@@ -273,9 +303,9 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
       style={{
         display: 'flex', alignItems: 'center', gap: 7,
         width: '100%', padding: '5px 10px',
-        background: isCurrent ? 'rgba(99,102,241,0.15)' : 'transparent',
+        background: isCurrent ? 'rgba(var(--accent-rgb),0.14)' : 'transparent',
         border: 'none', cursor: 'pointer', textAlign: 'left',
-        color: isCurrent ? 'var(--accent)' : 'var(--text-secondary)',
+        color: isCurrent ? '#ffd7c5' : 'var(--text-secondary)',
         fontSize: 12,
       }}
     >
@@ -317,7 +347,7 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
             onClick={handleImportFiles}
             disabled={isImporting}
             style={{
-              flex: 1, padding: '5px 0', borderRadius: 4, fontSize: 11,
+              flex: 1, minHeight: 32, padding: '5px 0', borderRadius: 8, fontSize: 11,
               background: 'var(--accent)', color: 'white', fontWeight: 600,
             }}
           >
@@ -327,7 +357,7 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
             onClick={handleImportFolder}
             disabled={isImporting}
             style={{
-              flex: 1, padding: '5px 0', borderRadius: 4, fontSize: 11,
+              flex: 1, minHeight: 32, padding: '5px 0', borderRadius: 8, fontSize: 11,
               background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
               border: '1px solid var(--border)',
             }}
@@ -377,34 +407,48 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
                 <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
                   {t('sidebar.status')}
                 </span>
-                <select
-                  value={activeImage.status}
-                  onChange={(e) => handleUpdateStatus(activeImage.id, e.target.value as ImageStatus).catch(console.error)}
-                  style={{ fontSize: 11, padding: '5px 6px' }}
-                >
-                  {STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {statusLabel(option.value)}
-                    </option>
-                  ))}
-                </select>
+                <div style={selectWrapStyle}>
+                  <select
+                    value={activeImage.status}
+                    onChange={(e) => handleUpdateStatus(activeImage.id, e.target.value as ImageStatus).catch(console.error)}
+                    style={selectFieldStyle}
+                  >
+                    {STATUS_OPTIONS.map((option) => (
+                      <option
+                        key={option.value}
+                        value={option.value}
+                        style={{ background: '#ffffff', color: '#111111' }}
+                      >
+                        {statusLabel(option.value)}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={selectArrowStyle}>▾</span>
+                </div>
               </label>
 
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
                   {t('sidebar.split')}
                 </span>
-                <select
-                  value={activeImage.split}
-                  onChange={(e) => handleUpdateSplit(activeImage.id, e.target.value as SplitType).catch(console.error)}
-                  style={{ fontSize: 11, padding: '5px 6px' }}
-                >
-                  {SPLIT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {splitLabel(option.value)}
-                    </option>
-                  ))}
-                </select>
+                <div style={selectWrapStyle}>
+                  <select
+                    value={activeImage.split}
+                    onChange={(e) => handleUpdateSplit(activeImage.id, e.target.value as SplitType).catch(console.error)}
+                    style={selectFieldStyle}
+                  >
+                    {SPLIT_OPTIONS.map((option) => (
+                      <option
+                        key={option.value}
+                        value={option.value}
+                        style={{ background: '#ffffff', color: '#111111' }}
+                      >
+                        {splitLabel(option.value)}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={selectArrowStyle}>▾</span>
+                </div>
               </label>
 
               <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.4 }}>

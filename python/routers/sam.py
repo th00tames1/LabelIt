@@ -23,6 +23,7 @@ class SAMPredictResponse(BaseModel):
     score: float
     processing_time_ms: float
     mode: str                          # "point" | "text" — which mode was used
+    runtime: dict
 
 
 @router.post("/predict", response_model=SAMPredictResponse)
@@ -54,4 +55,5 @@ async def predict(request: SAMPredictRequest):
         score=score,
         processing_time_ms=elapsed_ms,
         mode=mode,
+        runtime=sam_service.get_runtime_info(),
     )

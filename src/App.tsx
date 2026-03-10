@@ -11,17 +11,19 @@ export default function App() {
   const [page, setPage] = useState<Page>('home')
   const currentProject = useProjectStore((s) => s.currentProject)
   const setSidecarOnline = useUIStore((s) => s.setSidecarOnline)
+  const setSidecarRuntime = useUIStore((s) => s.setSidecarRuntime)
 
   // Poll sidecar health every 5 seconds
   useEffect(() => {
     const check = async () => {
-      const online = await sidecarClient.health()
-      setSidecarOnline(online)
+      const health = await sidecarClient.health()
+      setSidecarOnline(health != null)
+      setSidecarRuntime(health?.runtime ?? null)
     }
     check()
     const interval = setInterval(check, 5000)
     return () => clearInterval(interval)
-  }, [setSidecarOnline])
+  }, [setSidecarOnline, setSidecarRuntime])
 
   // Navigate to annotate page when a project is open
   useEffect(() => {

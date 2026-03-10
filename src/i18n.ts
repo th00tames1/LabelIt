@@ -17,6 +17,7 @@ const messages: Record<AppLanguage, MessageTree> = {
       refresh: 'Refresh',
     },
     home: {
+      brandRibbon: 'Oregon State-inspired workspace',
       subtitle: 'Fully local, offline-capable image annotation',
       newProject: '+ New Project',
       openProject: 'Open Project',
@@ -53,6 +54,8 @@ const messages: Record<AppLanguage, MessageTree> = {
       shortcutsTitle: 'Keyboard shortcuts (?)',
       aiOn: 'AI On',
       aiOff: 'AI Off',
+      aiGpu: 'AI GPU',
+      aiCpu: 'AI CPU',
     },
     tabs: {
       annotations: 'Annotations',
@@ -65,6 +68,10 @@ const messages: Record<AppLanguage, MessageTree> = {
       onboardingBody: '1. Open the Labels tab. 2. Add a class name and color. 3. Pick a drawing tool and annotate.',
       openLabels: 'Open Labels',
       openAnnotations: 'Open Annotations',
+    },
+    canvas: {
+      zoom: 'Zoom',
+      fit: 'Fit',
     },
     notice: {
       createLabelTitle: 'Create a label first',
@@ -104,6 +111,16 @@ const messages: Record<AppLanguage, MessageTree> = {
       title: 'Assign label',
       help: 'Enter confirm  ·  Esc skip',
       empty: 'No labels yet. Create labels in the Labels panel.',
+    },
+    sam: {
+      runtimeChecking: 'Checking SAM runtime...',
+      runtimeGpu: 'GPU acceleration enabled',
+      runtimeCpu: 'CPU mode - expect slower results',
+      gpuDetectedButUnused: 'NVIDIA GPU detected, but this Python environment is still using CPU-only PyTorch.',
+      devicePrefix: 'Runtime',
+      lastRunPrefix: 'Last run',
+      pointPreviewReady: 'Point preview uses the active label color and name on-canvas.',
+      clickHint: 'Left-click positive · Right-click negative · Enter commit',
     },
     annotationList: {
       undo: 'Undo',
@@ -160,6 +177,7 @@ const messages: Record<AppLanguage, MessageTree> = {
       refresh: '새로고침',
     },
     home: {
+      brandRibbon: '오리건주립대 감성 워크스페이스',
       subtitle: '로컬에서 실행되는 오프라인 이미지 어노테이션 도구',
       newProject: '+ 새 프로젝트',
       openProject: '프로젝트 열기',
@@ -196,6 +214,8 @@ const messages: Record<AppLanguage, MessageTree> = {
       shortcutsTitle: '키보드 단축키 (?)',
       aiOn: 'AI 켜짐',
       aiOff: 'AI 꺼짐',
+      aiGpu: 'AI GPU',
+      aiCpu: 'AI CPU',
     },
     tabs: {
       annotations: '어노테이션',
@@ -208,6 +228,10 @@ const messages: Record<AppLanguage, MessageTree> = {
       onboardingBody: '1. Labels 탭을 엽니다. 2. 클래스 이름과 색상을 추가합니다. 3. 도구를 선택하고 어노테이션합니다.',
       openLabels: '라벨 열기',
       openAnnotations: '어노테이션 열기',
+    },
+    canvas: {
+      zoom: '줌',
+      fit: '맞춤',
     },
     notice: {
       createLabelTitle: '먼저 라벨을 만드세요',
@@ -247,6 +271,16 @@ const messages: Record<AppLanguage, MessageTree> = {
       title: '라벨 지정',
       help: 'Enter 확인  ·  Esc 건너뛰기',
       empty: '아직 라벨이 없습니다. Labels 패널에서 라벨을 만드세요.',
+    },
+    sam: {
+      runtimeChecking: 'SAM 런타임 확인 중...',
+      runtimeGpu: 'GPU 가속 사용 중',
+      runtimeCpu: 'CPU 모드 - 속도가 느릴 수 있습니다',
+      gpuDetectedButUnused: 'NVIDIA GPU는 감지되지만, 현재 Python 환경은 CPU 전용 PyTorch를 사용 중입니다.',
+      devicePrefix: '런타임',
+      lastRunPrefix: '최근 추론',
+      pointPreviewReady: '포인트 프리뷰가 현재 라벨 색상과 이름으로 캔버스에 표시됩니다.',
+      clickHint: '왼쪽 클릭 긍정 · 오른쪽 클릭 부정 · Enter 확정',
     },
     annotationList: {
       undo: '실행 취소',

@@ -151,7 +151,7 @@ export default function ExportDialog({ onClose }: Props) {
                   style={{
                     padding: '10px 12px', borderRadius: 7, textAlign: 'left',
                     border: `1px solid ${format === opt.value ? 'var(--accent)' : 'var(--border)'}`,
-                    background: format === opt.value ? 'rgba(99,102,241,0.12)' : 'var(--bg-tertiary)',
+                    background: format === opt.value ? 'rgba(var(--accent-rgb),0.12)' : 'var(--bg-tertiary)',
                     cursor: 'pointer',
                   }}
                 >
@@ -177,7 +177,7 @@ export default function ExportDialog({ onClose }: Props) {
                   style={{
                     flex: 1, padding: '6px 0', borderRadius: 6, fontSize: 12, fontWeight: 500,
                     border: `1px solid ${split === opt.value ? 'var(--accent)' : 'var(--border)'}`,
-                    background: split === opt.value ? 'rgba(99,102,241,0.12)' : 'var(--bg-tertiary)',
+                    background: split === opt.value ? 'rgba(var(--accent-rgb),0.12)' : 'var(--bg-tertiary)',
                     color: split === opt.value ? 'var(--accent)' : 'var(--text-secondary)',
                     cursor: 'pointer',
                   }}
@@ -257,7 +257,7 @@ export default function ExportDialog({ onClose }: Props) {
           <button
             onClick={onClose}
             style={{
-              padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 500,
+              minWidth: 96, minHeight: 36, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
               background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
               color: 'var(--text-secondary)', cursor: 'pointer',
             }}
@@ -268,7 +268,7 @@ export default function ExportDialog({ onClose }: Props) {
             onClick={handleExport}
             disabled={isExporting}
             style={{
-              padding: '8px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600,
+              minWidth: 124, minHeight: 36, padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600,
               background: isExporting ? 'var(--bg-tertiary)' : 'var(--accent)',
               border: 'none', color: 'white', cursor: isExporting ? 'not-allowed' : 'pointer',
               opacity: isExporting ? 0.6 : 1,

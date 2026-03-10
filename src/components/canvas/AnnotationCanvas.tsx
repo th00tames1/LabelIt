@@ -27,6 +27,13 @@ const MAX_SCALE = 40
 
 interface SAMPoint { x: number; y: number; label: 0 | 1 }
 
+interface SamRunMeta {
+  processingTimeMs: number
+  mode: 'point' | 'text'
+  deviceLabel: string
+  acceleration: 'gpu' | 'cpu'
+}
+
 export default function AnnotationCanvas({ image, activeTool, onAnnotationCreated }: Props) {
   const stageRef = useRef<Konva.Stage>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -55,11 +62,13 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const [samContours, setSamContours] = useState<[number, number][][] | null>(null)
   const [samLoading, setSamLoading] = useState(false)
   const [samText, setSamText] = useState<string>('')
+  const [samLastRun, setSamLastRun] = useState<SamRunMeta | null>(null)
+  const [samError, setSamError] = useState<string | null>(null)
 
   const { annotations, selectedId, setSelectedId, createAnnotation, updateGeometry } =
     useAnnotationStore()
   const { labels } = useLabelStore()
-  const { activeLabelClassId, annotationsVisible } = useUIStore()
+  const { activeLabelClassId, annotationsVisible, sidecarRuntime } = useUIStore()
   const { language, t } = useI18n()
 
   // Wrapper: create annotation and notify parent for label quick-pick
@@ -109,6 +118,30 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const dispW = image.width * scale
   const dispH = image.height * scale
 
+  const applyScaleAt = useCallback((nextScale: number, anchorX: number, anchorY: number) => {
+    const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, nextScale))
+    const ratio = clamped / scale
+    setScale(clamped)
+    setImgX(anchorX - (anchorX - imgX) * ratio)
+    setImgY(anchorY - (anchorY - imgY) * ratio)
+  }, [scale, imgX, imgY])
+
+  const scaleToSlider = useCallback((value: number) => {
+    const minLog = Math.log(MIN_SCALE)
+    const maxLog = Math.log(MAX_SCALE)
+    const ratio = (Math.log(value) - minLog) / (maxLog - minLog)
+    return Math.round(ratio * 1000)
+  }, [])
+
+  const sliderToScale = useCallback((value: number) => {
+    const minLog = Math.log(MIN_SCALE)
+    const maxLog = Math.log(MAX_SCALE)
+    const ratio = value / 1000
+    return Math.exp(minLog + (maxLog - minLog) * ratio)
+  }, [])
+
+  const zoomPercent = Math.round(scale * 100)
+
   /** Convert stage pixel position to normalized image coordinates (0–1) */
   const toNormalized = useCallback((stageX: number, stageY: number): NormalizedPoint => {
     const nx = (stageX - imgX) / (image.width * scale)
@@ -142,10 +175,11 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
   // Run SAM prediction with current points (point-prompt mode)
   const runSAMPrediction = useCallback(async (points: SAMPoint[]) => {
-    if (points.length === 0) { setSamContours(null); return }
+    if (points.length === 0) { setSamContours(null); setSamError(null); return }
     const base64 = getImageBase64()
     if (!base64) return
     setSamLoading(true)
+    setSamError(null)
     try {
       const result = await sidecarClient.samPredict({
         image_base64: base64,
@@ -155,8 +189,17 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         multimask: false,
       })
       setSamContours(result.contours)
+      setSamLastRun({
+        processingTimeMs: result.processing_time_ms,
+        mode: result.mode,
+        deviceLabel: result.runtime.device_label,
+        acceleration: result.runtime.acceleration,
+      })
     } catch (err) {
       console.warn('SAM prediction failed:', err)
+      setSamContours(null)
+      setSamLastRun(null)
+      setSamError(err instanceof Error ? err.message : String(err))
     } finally {
       setSamLoading(false)
     }
@@ -168,6 +211,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     const base64 = getImageBase64()
     if (!base64) return
     setSamLoading(true)
+    setSamError(null)
     try {
       const result = await sidecarClient.samPredict({
         image_base64: base64,
@@ -177,9 +221,17 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         multimask: false,
       })
       setSamContours(result.contours)
+      setSamLastRun({
+        processingTimeMs: result.processing_time_ms,
+        mode: result.mode,
+        deviceLabel: result.runtime.device_label,
+        acceleration: result.runtime.acceleration,
+      })
     } catch (err) {
       console.warn('SAM text prediction failed:', err)
       setSamContours(null)
+      setSamLastRun(null)
+      setSamError(err instanceof Error ? err.message : String(err))
     } finally {
       setSamLoading(false)
     }
@@ -213,6 +265,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     setSamPoints([])
     setSamContours(null)
     setSamText('')
+    setSamError(null)
   }, [samContours, samText, createAndNotify, image.id, getActiveLabelId])
 
   // ─── Wheel zoom ─────────────────────────────────────────────────────────────
@@ -222,13 +275,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     const pointer = stage.getPointerPosition()!
     const factor = e.evt.deltaY < 0 ? 1.12 : 1 / 1.12
     const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * factor))
-    // Zoom towards pointer: keep the same image point under cursor
-    const newImgX = pointer.x - (pointer.x - imgX) * (newScale / scale)
-    const newImgY = pointer.y - (pointer.y - imgY) * (newScale / scale)
-    setScale(newScale)
-    setImgX(newImgX)
-    setImgY(newImgY)
-  }, [scale, imgX, imgY])
+    applyScaleAt(newScale, pointer.x, pointer.y)
+  }, [scale, applyScaleAt])
 
   // ─── Middle-mouse pan ────────────────────────────────────────────────────────
   const handleStageMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -355,7 +403,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'Escape') {
         setBboxStart(null); setBboxCurrent(null); setPolygonPoints([])
-        setSamPoints([]); setSamContours(null); setSamText('')
+        setSamPoints([]); setSamContours(null); setSamText(''); setSamLastRun(null); setSamError(null)
       }
       if (e.key === 'Enter' && activeTool === 'sam') {
         commitSAM().catch(console.error)
@@ -371,8 +419,18 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
       setSamPoints([])
       setSamContours(null)
       setSamText('')
+      setSamLastRun(null)
+      setSamError(null)
     }
   }, [activeTool])
+
+  useEffect(() => {
+    setSamPoints([])
+    setSamContours(null)
+    setSamText('')
+    setSamLastRun(null)
+    setSamError(null)
+  }, [image.id])
 
   // F / 0 = fit to view
   useEffect(() => {
@@ -395,6 +453,69 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     if (!labelClassId) return t('annotationList.unlabeled')
     return labels.find((l) => l.id === labelClassId)?.name ?? t('annotationList.unlabeled')
   }
+
+  const activeSamLabel = labels.find((label) => label.id === getActiveLabelId()) ?? null
+  const samPreviewColor = activeSamLabel?.color ?? 'var(--accent)'
+  const samPreviewFill = activeSamLabel?.color != null ? `${activeSamLabel.color}33` : 'rgba(var(--accent-rgb),0.18)'
+  const samPreviewLabel = activeSamLabel?.name ?? t('annotationList.unlabeled')
+
+  const formatSamMs = (value: number) => {
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}s`
+    return `${Math.round(value)}ms`
+  }
+
+  const getContourBounds = (contour: [number, number][]) => {
+    if (contour.length === 0) {
+      return { minX: 0.5, minY: 0.5, maxX: 0.5, maxY: 0.5 }
+    }
+
+    const initial = contour[0]
+    return contour.reduce((acc, [x, y]) => ({
+      minX: Math.min(acc.minX, x),
+      minY: Math.min(acc.minY, y),
+      maxX: Math.max(acc.maxX, x),
+      maxY: Math.max(acc.maxY, y),
+    }), {
+      minX: initial[0],
+      minY: initial[1],
+      maxX: initial[0],
+      maxY: initial[1],
+    })
+  }
+
+  const samPreviewTags = (() => {
+    const tagWidth = Math.max(72, samPreviewLabel.length * 7 + 16)
+    const clampTag = (left: number, top: number) => ({
+      left: Math.max(imgX + 4, Math.min(imgX + dispW - tagWidth - 4, left)),
+      top: Math.max(imgY + 4, Math.min(imgY + dispH - 24, top)),
+      width: tagWidth,
+    })
+
+    if (samContours != null && samContours.length > 0) {
+      return samContours.map((contour, index) => {
+        const bounds = getContourBounds(contour)
+        return {
+          key: `contour-${index}`,
+          ...clampTag(imgX + bounds.minX * dispW + 8, imgY + bounds.minY * dispH + 8),
+        }
+      })
+    }
+
+    if (samPoints.length > 0) {
+      const anchor = samPoints[samPoints.length - 1]
+      return [{
+        key: 'point-preview',
+        ...clampTag(imgX + anchor.x * dispW + 10, imgY + anchor.y * dispH - 28),
+      }]
+    }
+
+    return []
+  })()
+  const samRuntimeText = sidecarRuntime == null
+    ? t('sam.runtimeChecking')
+    : sidecarRuntime.acceleration === 'gpu'
+      ? t('sam.runtimeGpu')
+      : t('sam.runtimeCpu')
 
   const cursor =
     activeTool === 'bbox' || activeTool === 'polygon'
@@ -484,9 +605,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                   key={ci}
                   points={contour.flatMap(([nx, ny]) => [imgX + nx * dispW, imgY + ny * dispH])}
                   closed
-                  stroke="#00ff88"
+                  stroke={samPreviewColor}
                   strokeWidth={2}
-                  fill="#00ff8833"
+                  fill={samPreviewFill}
                   perfectDrawEnabled={false}
                 />
               ))}
@@ -505,7 +626,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
               {samLoading && (
                 <Line
                   points={[imgX, imgY, imgX + dispW, imgY]}
-                  stroke="#00ff88"
+                  stroke={samPreviewColor}
                   strokeWidth={3}
                   dash={[10, 5]}
                   perfectDrawEnabled={false}
@@ -515,6 +636,101 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
           )}
         </Layer>
       </Stage>
+
+      {activeTool === 'sam' && samPreviewTags.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            zIndex: 4,
+          }}
+        >
+          {samPreviewTags.map((tag) => (
+            <div
+              key={tag.key}
+              style={{
+                position: 'absolute',
+                left: tag.left,
+                top: tag.top,
+                minWidth: tag.width,
+                maxWidth: 180,
+                padding: '4px 10px',
+                borderRadius: 6,
+                background: samPreviewColor,
+                color: 'white',
+                fontSize: 11,
+                fontWeight: 700,
+                lineHeight: 1.2,
+                boxShadow: '0 8px 20px rgba(0,0,0,0.28)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {samPreviewLabel}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div
+        style={{
+          position: 'absolute',
+          left: 16,
+          bottom: 16,
+          zIndex: 5,
+          minWidth: 230,
+          padding: '10px 12px',
+          borderRadius: 12,
+          background: 'rgba(18, 18, 18, 0.92)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          boxShadow: '0 10px 28px rgba(0,0,0,0.32)',
+          backdropFilter: 'blur(10px)',
+          pointerEvents: 'auto',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            {t('canvas.zoom')}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', minWidth: 50, textAlign: 'right' }}>
+              {zoomPercent}%
+            </span>
+            <button
+              onClick={() => fitImage(stageSize.width, stageSize.height)}
+              style={{
+                minWidth: 46,
+                height: 26,
+                padding: '0 10px',
+                borderRadius: 6,
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)',
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+            >
+              {t('canvas.fit')}
+            </button>
+          </div>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1000}
+          step={1}
+          value={scaleToSlider(scale)}
+          onChange={(e) => applyScaleAt(
+            sliderToScale(Number(e.target.value)),
+            stageSize.width / 2,
+            stageSize.height / 2,
+          )}
+          style={{ width: '100%', marginTop: 8, accentColor: 'var(--accent)' }}
+        />
+      </div>
 
       {/* SAM 3 control panel — floats above the canvas when SAM tool is active */}
       {activeTool === 'sam' && (
@@ -569,7 +785,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
               onClick={() => runSAMTextPrediction(samText).catch(console.error)}
               disabled={!samText.trim() || samLoading}
               style={{
-                background: samText.trim() && !samLoading ? '#6366f1' : 'rgba(99,102,241,0.3)',
+                background: samText.trim() && !samLoading ? 'var(--accent)' : 'rgba(var(--accent-rgb),0.35)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 6,
@@ -584,6 +800,51 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             </button>
           </div>
 
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '4px 10px',
+              borderRadius: 999,
+              background: sidecarRuntime?.acceleration === 'gpu'
+                ? 'rgba(34,197,94,0.16)'
+                : 'rgba(245,158,11,0.16)',
+              border: sidecarRuntime?.acceleration === 'gpu'
+                ? '1px solid rgba(34,197,94,0.26)'
+                : '1px solid rgba(245,158,11,0.26)',
+            }}>
+              <span style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: sidecarRuntime?.acceleration === 'gpu' ? '#22c55e' : '#f59e0b',
+              }} />
+              <span style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: sidecarRuntime?.acceleration === 'gpu' ? '#bbf7d0' : '#fde68a',
+              }}>
+                {samRuntimeText}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.58)' }}>
+              {`${t('sam.devicePrefix')}: ${sidecarRuntime?.device_label ?? '-'}`}
+            </div>
+          </div>
+
+          {sidecarRuntime?.nvidia_gpu_detected && !sidecarRuntime.cuda_available && (
+            <div style={{ fontSize: 11, color: '#fde68a', lineHeight: 1.45 }}>
+              {t('sam.gpuDetectedButUnused')}
+            </div>
+          )}
+
           {/* Status + commit row */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>
@@ -594,8 +855,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                   ? `${samContours.length}개 마스크 준비됨 - Enter 또는 Commit 클릭`
                   : `${samContours.length} mask(s) ready - press Enter or click Commit`)
                 : (language === 'ko'
-                  ? '왼쪽 클릭 = 긍정  ·  오른쪽 클릭 = 부정  ·  Enter = 확정'
-                  : 'Left-click = positive  ·  Right-click = negative  ·  Enter = commit')}
+                  ? t('sam.clickHint')
+                  : t('sam.clickHint'))}
             </span>
             {samContours && samContours.length > 0 && (
               <button
@@ -616,6 +877,42 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                 </button>
               )}
             </div>
+
+          {(samPoints.length > 0 || samLastRun != null) && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+            }}>
+              {samPoints.length > 0 && (
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)' }}>
+                  {t('sam.pointPreviewReady')}
+                </div>
+              )}
+              {samLastRun && (
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.52)' }}>
+                  {`${t('sam.lastRunPrefix')}: ${formatSamMs(samLastRun.processingTimeMs)} · ${samLastRun.deviceLabel}`}
+                </div>
+              )}
+            </div>
+          )}
+
+          {samError && (
+            <div style={{
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: 'rgba(239,68,68,0.12)',
+              border: '1px solid rgba(239,68,68,0.28)',
+              color: '#fecaca',
+              fontSize: 11,
+              lineHeight: 1.45,
+              wordBreak: 'break-word',
+            }}>
+              {samError}
+            </div>
+          )}
 
           {/* SAM point summary */}
           {samPoints.length > 0 && (

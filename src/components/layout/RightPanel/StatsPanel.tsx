@@ -25,16 +25,16 @@ export default function StatsPanel() {
   useEffect(() => { load() }, [])
 
   const statusColor: Record<string, string> = {
-    unlabeled: '#6b7280',
-    in_progress: '#f59e0b',
-    labeled: '#22c55e',
-    approved: '#3b82f6',
+    unlabeled: 'var(--status-unlabeled)',
+    in_progress: 'var(--status-in-progress)',
+    labeled: 'var(--status-labeled)',
+    approved: 'var(--status-approved)',
   }
   const splitColor: Record<string, string> = {
-    train: '#8b5cf6',
-    val: '#06b6d4',
-    test: '#f97316',
-    unassigned: '#6b7280',
+    train: 'var(--split-train)',
+    val: 'var(--split-val)',
+    test: 'var(--split-test)',
+    unassigned: 'var(--split-unassigned)',
   }
 
   const row = (label: string, value: number | string, color?: string) => (

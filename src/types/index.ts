@@ -9,6 +9,26 @@ export type ToolType = 'select' | 'bbox' | 'polygon' | 'keypoint' | 'sam'
 export type RightPanelTab = 'annotations' | 'labels' | 'stats'
 export type AppLanguage = 'en' | 'ko'
 
+export interface SidecarRuntimeInfo {
+  device: string
+  device_label: string
+  acceleration: 'gpu' | 'cpu'
+  cuda_available: boolean
+  mps_available: boolean
+  nvidia_gpu_detected: boolean
+  hardware_label: string | null
+  half_precision: boolean
+  sam_model_loaded: boolean
+  sam_text_model_loaded: boolean
+  setup_hint: string | null
+}
+
+export interface SidecarHealth {
+  status: string
+  version: string
+  runtime: SidecarRuntimeInfo
+}
+
 export interface BBoxGeometry {
   type: 'bbox'
   x: number; y: number; width: number; height: number

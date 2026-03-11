@@ -7,6 +7,7 @@ interface Props {
   isSelected: boolean
   imgX: number; imgY: number; imgW: number; imgH: number
   onSelect: () => void
+  onSelectAtPointer?: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
 }
 
@@ -15,7 +16,7 @@ const VISIBILITY_COLORS = ['transparent', '#ffaa00', '#ffffff']
 export default function KeypointShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
-  onSelect, onUpdateGeometry,
+  onSelect, onSelectAtPointer, onUpdateGeometry,
 }: Props) {
   const geo = annotation.geometry as KeypointsGeometry
 
@@ -36,6 +37,10 @@ export default function KeypointShape({
     onUpdateGeometry({ ...geo, keypoints: newKeypoints })
   }
 
+  const setCursor = (target: { getStage: () => { container: () => HTMLDivElement } | null }, cursor: string) => {
+    target.getStage()?.container().style.setProperty('cursor', cursor)
+  }
+
   return (
     <>
       {/* Render keypoint circles */}
@@ -50,10 +55,13 @@ export default function KeypointShape({
             fill={VISIBILITY_COLORS[kp.visibility]}
             stroke={color}
             strokeWidth={isSelected ? 2 : 1.5}
-            draggable={isSelected}
-            onDragEnd={(e) => handleKpDragEnd(i, e.target.x(), e.target.y())}
-            onClick={(e) => { e.cancelBubble = true; onSelect() }}
+            draggable
+            onDragStart={(e) => { onSelect(); setCursor(e.target, 'grabbing') }}
+            onDragEnd={(e) => { handleKpDragEnd(i, e.target.x(), e.target.y()); setCursor(e.target, 'pointer') }}
+            onClick={(e) => { e.cancelBubble = true; (onSelectAtPointer ?? onSelect)() }}
             onContextMenu={(e) => { e.evt.preventDefault(); handleKpRightClick(i) }}
+            onMouseEnter={(e) => setCursor(e.target, 'pointer')}
+            onMouseLeave={(e) => setCursor(e.target, 'crosshair')}
             perfectDrawEnabled={false}
           />
         )

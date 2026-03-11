@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { Rect, Transformer, Text } from 'react-konva'
 import type Konva from 'konva'
 import type { Annotation, AnnotationGeometry, BBoxGeometry } from '../../../types'
@@ -10,6 +10,7 @@ interface Props {
   imgX: number; imgY: number; imgW: number; imgH: number
   labelName?: string
   onSelect: () => void
+  onSelectAtPointer: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
 }
 
@@ -17,10 +18,11 @@ export default function BoundingBoxShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
   labelName,
-  onSelect, onUpdateGeometry,
+  onSelect, onSelectAtPointer, onUpdateGeometry,
 }: Props) {
   const rectRef = useRef<Konva.Rect>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
 
   const geo = annotation.geometry as BBoxGeometry
   const x = imgX + geo.x * imgW
@@ -59,12 +61,20 @@ export default function BoundingBoxShape({
     const newX = Math.max(0, (node.x() - imgX) / imgW)
     const newY = Math.max(0, (node.y() - imgY) / imgH)
     onUpdateGeometry({ type: 'bbox', x: newX, y: newY, width: geo.width, height: geo.height })
+    setDragOffset({ x: 0, y: 0 })
+    node.getStage()?.container().style.setProperty('cursor', 'move')
   }
 
   // Label tag shown above bbox — clamp so it doesn't go above canvas top
   const tagH = 16
-  const tagY = y < tagH ? y : y - tagH
+  const liveX = x + dragOffset.x
+  const liveY = y + dragOffset.y
+  const tagY = liveY < tagH ? liveY : liveY - tagH
   const showTag = !!annotation.label_class_id && !!labelName
+
+  const setCursor = (target: { getStage: () => { container: () => HTMLDivElement } | null }, cursor: string) => {
+    target.getStage()?.container().style.setProperty('cursor', cursor)
+  }
 
   return (
     <>
@@ -75,10 +85,14 @@ export default function BoundingBoxShape({
         strokeWidth={isSelected ? 2 : 1.5}
         fill={`${color}22`}
         draggable={isSelected}
-        onClick={(e) => { e.cancelBubble = true; onSelect() }}
-        onTap={onSelect}
+        onClick={(e) => { e.cancelBubble = true; onSelectAtPointer() }}
+        onTap={() => onSelectAtPointer()}
+        onDragStart={(e) => { setDragOffset({ x: 0, y: 0 }); setCursor(e.target, 'grabbing') }}
+        onDragMove={(e) => setDragOffset({ x: e.target.x() - x, y: e.target.y() - y })}
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
+        onMouseEnter={(e) => setCursor(e.target, isSelected ? 'move' : 'pointer')}
+        onMouseLeave={(e) => setCursor(e.target, 'crosshair')}
         perfectDrawEnabled={false}
       />
 
@@ -86,7 +100,7 @@ export default function BoundingBoxShape({
       {showTag && (
         <>
           <Rect
-            x={x} y={tagY}
+            x={liveX} y={tagY}
             width={Math.min(w, Math.max(40, labelName!.length * 7 + 8))}
             height={tagH}
             fill={color}
@@ -95,7 +109,7 @@ export default function BoundingBoxShape({
             perfectDrawEnabled={false}
           />
           <Text
-            x={x + 4} y={tagY + 2}
+            x={liveX + 4} y={tagY + 2}
             text={labelName!}
             fontSize={10}
             fontStyle="bold"
@@ -111,6 +125,7 @@ export default function BoundingBoxShape({
         ref={transformerRef}
         rotateEnabled={false}
         flipEnabled={false}
+        keepRatio={false}
         borderStroke={color}
         anchorStroke={color}
         anchorFill="white"

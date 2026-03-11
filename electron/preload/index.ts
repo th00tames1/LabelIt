@@ -10,6 +10,7 @@ const api = {
       ipcRenderer.invoke('project:open', filePath),
     close: () => ipcRenderer.invoke('project:close'),
     getMeta: () => ipcRenderer.invoke('project:getMeta'),
+    updateName: (name: string) => ipcRenderer.invoke('project:updateName', name),
     listRecent: () => ipcRenderer.invoke('project:listRecent'),
     showOpenDialog: () => ipcRenderer.invoke('project:showOpenDialog'),
     showCreateDialog: () => ipcRenderer.invoke('project:showCreateDialog'),
@@ -75,6 +76,11 @@ const api = {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (partial: unknown) => ipcRenderer.invoke('settings:set', partial),
+    onChanged: (callback: (settings: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, settings: unknown) => callback(settings)
+      ipcRenderer.on('settings:changed', listener)
+      return () => ipcRenderer.removeListener('settings:changed', listener)
+    },
   },
 
   stats: {

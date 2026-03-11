@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAllIpc } from './ipc'
 import { sidecarService } from './services/sidecar.service'
+import { refreshApplicationMenu } from './services/menu.service'
 import { closeDatabase } from './db/database'
 
 // ─── localfile:// Custom Protocol ────────────────────────────────────────────
@@ -164,6 +165,7 @@ app.whenReady().then(async () => {
 
   // Create the main window
   createWindow()
+  refreshApplicationMenu()
 
   // Start AI sidecar in background (non-blocking, optional feature)
   sidecarService.start().catch((err) => {

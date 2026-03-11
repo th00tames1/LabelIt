@@ -1,7 +1,8 @@
 import { spawn, ChildProcess } from 'child_process'
-import { join, resolve } from 'path'
+import { join } from 'path'
 import { existsSync } from 'fs'
 import { app } from 'electron'
+import { settingsStore } from './settings.service'
 
 export type SidecarStatus = 'stopped' | 'starting' | 'running' | 'error'
 
@@ -14,7 +15,7 @@ class SidecarService {
   get baseUrl(): string { return `http://127.0.0.1:${this.port}` }
 
   async start(): Promise<void> {
-    if (this._status === 'running') return
+    if (this._status === 'running' || this._status === 'starting') return
     this._status = 'starting'
 
     const pythonExe = this.resolvePythonPath()
@@ -39,6 +40,10 @@ class SidecarService {
     ], {
       cwd: scriptDir,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        LABELING_TOOL_AI_DEVICE: settingsStore.get('ai_device_mode') ?? 'auto',
+      },
     })
 
     this.process.on('exit', () => {
@@ -59,6 +64,12 @@ class SidecarService {
     this.process?.kill('SIGTERM')
     this.process = null
     this._status = 'stopped'
+  }
+
+  async restart(): Promise<void> {
+    this.stop()
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250))
+    await this.start()
   }
 
   private resolvePythonPath(): string | null {

@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import { settingsApi } from '../api/ipc'
-import type { AppLanguage, AppSettings } from '../types'
+import type { AIDeviceMode, AppLanguage, AppSettings } from '../types'
 
 const DEFAULT_SETTINGS: AppSettings = {
   language: 'en',
   theme: 'dark',
+  ai_device_mode: 'auto',
   default_label_colors: [
     '#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6',
     '#8B5CF6', '#EC4899', '#14B8A6', '#F43F5E', '#84CC16',
@@ -22,6 +23,8 @@ interface SettingsState {
   load: () => Promise<void>
   updateSettings: (partial: Partial<AppSettings>) => Promise<void>
   setLanguage: (language: AppLanguage) => Promise<void>
+  setTheme: (theme: AppSettings['theme']) => Promise<void>
+  setAIDeviceMode: (mode: AIDeviceMode) => Promise<void>
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -56,5 +59,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setLanguage: async (language) => {
     await get().updateSettings({ language })
+  },
+
+  setTheme: async (theme) => {
+    await get().updateSettings({ theme })
+  },
+
+  setAIDeviceMode: async (mode) => {
+    await get().updateSettings({ ai_device_mode: mode })
   },
 }))

@@ -8,6 +8,7 @@ export type AnnotationSource = 'manual' | 'sam' | 'yolo_auto'
 export type ToolType = 'select' | 'bbox' | 'polygon' | 'keypoint' | 'sam'
 export type RightPanelTab = 'annotations' | 'labels' | 'stats'
 export type AppLanguage = 'en' | 'ko'
+export type AIDeviceMode = 'auto' | 'gpu' | 'cpu'
 
 export interface SidecarRuntimeInfo {
   device: string
@@ -101,6 +102,7 @@ export interface NormalizedPoint {
 export interface AppSettings {
   language: AppLanguage
   theme: 'dark' | 'light' | 'system'
+  ai_device_mode: AIDeviceMode
   default_label_colors: string[]
   canvas_zoom_sensitivity: number
   auto_save_interval_ms: number

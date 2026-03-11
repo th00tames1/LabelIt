@@ -7,13 +7,14 @@ interface Props {
   isSelected: boolean
   imgX: number; imgY: number; imgW: number; imgH: number
   onSelect: () => void
+  onSelectAtPointer?: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
 }
 
 export default function MaskOverlay({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
-  onSelect,
+  onSelect, onSelectAtPointer,
 }: Props) {
   const geo = annotation.geometry as MaskGeometry
 
@@ -32,7 +33,7 @@ export default function MaskOverlay({
             strokeWidth={isSelected ? 2 : 1.5}
             fill={`${color}33`}
             closed
-            onClick={(e) => { e.cancelBubble = true; onSelect() }}
+            onClick={(e) => { e.cancelBubble = true; (onSelectAtPointer ?? onSelect)() }}
             perfectDrawEnabled={false}
           />
         )

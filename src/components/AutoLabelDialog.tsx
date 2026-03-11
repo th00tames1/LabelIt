@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { yoloApi, type ImageAutoLabelResult } from '../api/ipc'
 import type { Image } from '../types'
 import { useI18n } from '../i18n'
@@ -109,6 +109,27 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
     ? customModelPath.trim()
     : selectedModel
 
+  const selectShellStyle: CSSProperties = {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+  }
+
+  const selectStyle: CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '8px 34px 8px 12px',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-tertiary)',
+    color: 'var(--text-primary)',
+    fontSize: 13,
+    minHeight: 36,
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    MozAppearance: 'none',
+  }
+
   // Derived: which images will be processed
   const targetImages = (): Image[] => {
     if (target === 'current') {
@@ -209,27 +230,37 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 5 }}>
               {text.model}
             </label>
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value as ModelChoice)}
-              disabled={isRunning}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '8px 12px', borderRadius: 8,
-                border: '1px solid var(--border)', background: 'var(--bg-tertiary)',
-                color: 'var(--text-primary)', fontSize: 13, minHeight: 36,
-              }}
-            >
-              {modelOptions.map((option) => (
-                <option
-                  key={option.value}
-                  value={option.value}
-                  style={{ background: '#ffffff', color: '#111111' }}
-                >
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div style={selectShellStyle}>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value as ModelChoice)}
+                disabled={isRunning}
+                style={selectStyle}
+              >
+                {modelOptions.map((option) => (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    style={{ background: '#ffffff', color: '#111111' }}
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  fontSize: 11,
+                  color: 'var(--text-muted)',
+                  pointerEvents: 'none',
+                }}
+              >
+                ▾
+              </span>
+            </div>
             {selectedModel === 'custom' && (
               <div style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>

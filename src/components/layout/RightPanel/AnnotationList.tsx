@@ -23,6 +23,7 @@ export default function AnnotationList() {
 
   // Filter state: show all or only yolo_auto
   const [filterAuto, setFilterAuto] = useState(false)
+  const [openLabelPickerId, setOpenLabelPickerId] = useState<string | null>(null)
 
   const autoCount = annotations.filter((a) => a.source === 'yolo_auto').length
 
@@ -199,11 +200,14 @@ export default function AnnotationList() {
             labelName={getLabelName(ann.label_class_id)}
             labelColor={getLabelColor(ann.label_class_id)}
             labels={labels}
+            isLabelPickerOpen={openLabelPickerId === ann.id}
             onSelect={() => setSelectedId(ann.id)}
             onDelete={() => deleteAnnotation(ann.id)}
             onChangeLabel={(labelId) => updateLabel(ann.id, labelId)}
             onAccept={() => handleAcceptOne(ann.id)}
             onReject={() => handleRejectOne(ann.id)}
+            onToggleLabelPicker={() => setOpenLabelPickerId((current) => current === ann.id ? null : ann.id)}
+            onCloseLabelPicker={() => setOpenLabelPickerId(null)}
           />
         ))}
       </div>
@@ -214,6 +218,7 @@ export default function AnnotationList() {
 function AnnotationItem({
   annotation, isSelected, labelName, labelColor, labels,
   onSelect, onDelete, onChangeLabel, onAccept, onReject,
+  isLabelPickerOpen, onToggleLabelPicker, onCloseLabelPicker,
 }: {
   annotation: Annotation
   isSelected: boolean
@@ -225,8 +230,10 @@ function AnnotationItem({
   onChangeLabel: (id: string | null) => void
   onAccept: () => void
   onReject: () => void
+  isLabelPickerOpen: boolean
+  onToggleLabelPicker: () => void
+  onCloseLabelPicker: () => void
 }) {
-  const [showLabelPicker, setShowLabelPicker] = useState(false)
   const { t } = useI18n()
   const icon = TYPE_ICONS[annotation.annotation_type] ?? '?'
   const isAuto = annotation.source === 'yolo_auto'
@@ -255,7 +262,7 @@ function AnnotationItem({
         {/* Label */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
-            onClick={(e) => { e.stopPropagation(); setShowLabelPicker((v) => !v) }}
+            onClick={(e) => { e.stopPropagation(); onToggleLabelPicker() }}
             style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}
           >
             <div style={{
@@ -316,7 +323,7 @@ function AnnotationItem({
       </div>
 
       {/* Label picker dropdown */}
-      {showLabelPicker && (
+      {isLabelPickerOpen && (
         <div
           style={{
             position: 'absolute', right: 40, top: 0, zIndex: 50,
@@ -326,9 +333,13 @@ function AnnotationItem({
           onClick={(e) => e.stopPropagation()}
         >
           <div
-            style={{ padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: 'var(--text-muted)' }}
-            onClick={() => { onChangeLabel(null); setShowLabelPicker(false) }}
+            style={{
+              padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: 'var(--text-primary)',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}
+            onClick={() => { onChangeLabel(null); onCloseLabelPicker() }}
           >
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#666' }} />
             {t('annotationList.unlabeled')}
           </div>
           {labels.map((l) => (
@@ -339,7 +350,7 @@ function AnnotationItem({
                 display: 'flex', alignItems: 'center', gap: 8,
                 color: 'var(--text-primary)',
               }}
-              onClick={() => { onChangeLabel(l.id); setShowLabelPicker(false) }}
+              onClick={() => { onChangeLabel(l.id); onCloseLabelPicker() }}
             >
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: l.color }} />
               {l.name}

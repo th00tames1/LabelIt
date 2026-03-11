@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false, reportPrivateImportUsage=false
+
 """
 YOLO detection service using the already-installed Ultralytics library.
 Models are lazy-loaded and cached by model_path.
@@ -7,6 +9,7 @@ import io
 import numpy as np
 from PIL import Image
 from typing import Any
+from services.runtime_service import get_runtime_info
 
 
 class YOLOService:
@@ -34,6 +37,7 @@ class YOLOService:
             source=np.array(image),
             conf=conf,
             iou=iou,
+            device=get_runtime_info()["device"],
             verbose=False,
         )
 

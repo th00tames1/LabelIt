@@ -9,6 +9,10 @@ const messages: Record<AppLanguage, MessageTree> = {
   en: {
     common: {
       language: 'Language',
+      theme: 'Theme',
+      light: 'Light',
+      dark: 'Dark',
+      deviceMode: 'Device',
       english: 'English',
       korean: 'Korean',
       cancel: 'Cancel',
@@ -54,8 +58,9 @@ const messages: Record<AppLanguage, MessageTree> = {
       shortcutsTitle: 'Keyboard shortcuts (?)',
       aiOn: 'AI On',
       aiOff: 'AI Off',
-      aiGpu: 'AI GPU',
-      aiCpu: 'AI CPU',
+      aiGpu: 'GPU',
+      aiCpu: 'CPU',
+      toolRail: 'Tools',
     },
     tabs: {
       annotations: 'Annotations',
@@ -99,6 +104,8 @@ const messages: Record<AppLanguage, MessageTree> = {
       imagesCount: '{count} image{suffix}',
       importing: 'importing...',
       dropHint: 'Drop images here or use the buttons above',
+      noImagesInView: 'No images match the current view.',
+      viewTitle: 'View',
       selectedImage: 'Selected Image',
       noImageSelected: 'Select an image to inspect its status and split.',
       status: 'Status',
@@ -114,8 +121,8 @@ const messages: Record<AppLanguage, MessageTree> = {
     },
     sam: {
       runtimeChecking: 'Checking SAM runtime...',
-      runtimeGpu: 'GPU acceleration enabled',
-      runtimeCpu: 'CPU mode - expect slower results',
+      runtimeGpu: 'GPU',
+      runtimeCpu: 'CPU',
       gpuDetectedButUnused: 'NVIDIA GPU detected, but this Python environment is still using CPU-only PyTorch.',
       devicePrefix: 'Runtime',
       lastRunPrefix: 'Last run',
@@ -155,7 +162,7 @@ const messages: Record<AppLanguage, MessageTree> = {
     },
     status: {
       unlabeled: 'Unlabeled',
-      in_progress: 'In Progress',
+      in_progress: 'Labeled',
       labeled: 'Labeled',
       approved: 'Approved',
     },
@@ -169,6 +176,10 @@ const messages: Record<AppLanguage, MessageTree> = {
   ko: {
     common: {
       language: '언어',
+      theme: '테마',
+      light: '라이트',
+      dark: '다크',
+      deviceMode: '장치',
       english: '영어',
       korean: '한국어',
       cancel: '취소',
@@ -214,8 +225,9 @@ const messages: Record<AppLanguage, MessageTree> = {
       shortcutsTitle: '키보드 단축키 (?)',
       aiOn: 'AI 켜짐',
       aiOff: 'AI 꺼짐',
-      aiGpu: 'AI GPU',
-      aiCpu: 'AI CPU',
+      aiGpu: 'GPU',
+      aiCpu: 'CPU',
+      toolRail: '도구',
     },
     tabs: {
       annotations: '어노테이션',
@@ -259,6 +271,8 @@ const messages: Record<AppLanguage, MessageTree> = {
       imagesCount: '{count}개 이미지',
       importing: '가져오는 중...',
       dropHint: '여기에 이미지를 드롭하거나 위 버튼을 사용하세요',
+      noImagesInView: '현재 보기 조건과 맞는 이미지가 없습니다.',
+      viewTitle: '보기',
       selectedImage: '선택된 이미지',
       noImageSelected: '이미지를 선택하면 상태와 분할을 여기서 바로 바꿀 수 있습니다.',
       status: '상태',
@@ -274,8 +288,8 @@ const messages: Record<AppLanguage, MessageTree> = {
     },
     sam: {
       runtimeChecking: 'SAM 런타임 확인 중...',
-      runtimeGpu: 'GPU 가속 사용 중',
-      runtimeCpu: 'CPU 모드 - 속도가 느릴 수 있습니다',
+      runtimeGpu: 'GPU',
+      runtimeCpu: 'CPU',
       gpuDetectedButUnused: 'NVIDIA GPU는 감지되지만, 현재 Python 환경은 CPU 전용 PyTorch를 사용 중입니다.',
       devicePrefix: '런타임',
       lastRunPrefix: '최근 추론',
@@ -315,7 +329,7 @@ const messages: Record<AppLanguage, MessageTree> = {
     },
     status: {
       unlabeled: '미라벨',
-      in_progress: '작업 중',
+      in_progress: '라벨 완료',
       labeled: '라벨 완료',
       approved: '검수 완료',
     },

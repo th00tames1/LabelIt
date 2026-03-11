@@ -21,8 +21,6 @@ export interface SAMPredictRequest {
   points: [number, number][]
   point_labels: (0 | 1)[]
   box?: [number, number, number, number] | null
-  /** SAM 3: optional concept/text prompt — e.g. "car", "person with hat" */
-  text?: string | null
   multimask?: boolean
 }
 
@@ -30,8 +28,7 @@ export interface SAMPredictResponse {
   contours: [number, number][][]
   score: number
   processing_time_ms: number
-  /** "point" | "text" — which SAM 3 mode was used */
-  mode: 'point' | 'text'
+  mode: 'point'
   runtime: SidecarRuntimeInfo
 }
 

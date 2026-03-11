@@ -20,8 +20,6 @@ export default function PolygonPreview({ points, mousePos, imgX, imgY, imgW, img
     return [c.x, c.y]
   })
 
-  const first = toCanvas(points[0])
-
   return (
     <>
       <Line
@@ -47,21 +45,6 @@ export default function PolygonPreview({ points, mousePos, imgX, imgY, imgW, img
           />
         )
       })}
-      {/* Closing line from last point to first */}
-      {points.length >= 2 && (
-        <Line
-          points={[
-            imgX + points[points.length - 1].x * imgW,
-            imgY + points[points.length - 1].y * imgH,
-            first.x, first.y,
-          ]}
-          stroke="#7c3aed"
-          strokeWidth={1}
-          dash={[2, 4]}
-          opacity={0.4}
-          listening={false}
-        />
-      )}
     </>
   )
 }

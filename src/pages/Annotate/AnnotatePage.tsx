@@ -10,6 +10,8 @@ import TopBar from '../../components/layout/TopBar/TopBar'
 import ImageBrowser from '../../components/layout/Sidebar/ImageBrowser'
 import AnnotationCanvas from '../../components/canvas/AnnotationCanvas'
 import RightPanel from '../../components/layout/RightPanel/RightPanel'
+import CanvasErrorBoundary from '../../components/CanvasErrorBoundary'
+import ToolRail from '../../components/layout/ToolRail'
 import ExportDialog from '../../components/ExportDialog'
 import AutoSplitDialog from '../../components/AutoSplitDialog'
 import AutoLabelDialog from '../../components/AutoLabelDialog'
@@ -289,7 +291,7 @@ export default function AnnotatePage({ onGoHome }: Props) {
         />
 
         {/* Main canvas area */}
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#0a0a0a' }}>
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'var(--canvas-bg)' }}>
           {labels.length === 0 && (
             <div style={{
               position: 'absolute', top: 16, left: 16, right: 16, zIndex: 5,
@@ -385,11 +387,13 @@ export default function AnnotatePage({ onGoHome }: Props) {
           )}
 
           {activeImage ? (
-            <AnnotationCanvas
-              image={activeImage}
-              activeTool={activeTool}
-              onAnnotationCreated={(id) => { if (!activeLabelClassId) setQuickPickAnnotationId(id) }}
-            />
+            <CanvasErrorBoundary>
+              <AnnotationCanvas
+                image={activeImage}
+                activeTool={activeTool}
+                onAnnotationCreated={(id) => { if (!activeLabelClassId) setQuickPickAnnotationId(id) }}
+              />
+            </CanvasErrorBoundary>
           ) : (
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -398,6 +402,8 @@ export default function AnnotatePage({ onGoHome }: Props) {
               {t('annotate.noImages')}
             </div>
           )}
+
+          <ToolRail />
         </div>
 
         {/* Right panel: annotations + labels */}

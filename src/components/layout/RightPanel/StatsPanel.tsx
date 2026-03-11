@@ -26,7 +26,7 @@ export default function StatsPanel() {
 
   const statusColor: Record<string, string> = {
     unlabeled: 'var(--status-unlabeled)',
-    in_progress: 'var(--status-in-progress)',
+    in_progress: 'var(--status-labeled)',
     labeled: 'var(--status-labeled)',
     approved: 'var(--status-approved)',
   }

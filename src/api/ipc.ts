@@ -45,6 +45,7 @@ export const projectApi = {
     api.project.open(filePath),
   close: (): Promise<void> => api.project.close(),
   getMeta: (): Promise<ProjectMeta> => api.project.getMeta(),
+  updateName: (name: string): Promise<ProjectMeta> => api.project.updateName(name),
   listRecent: (): Promise<RecentProject[]> => api.project.listRecent(),
   showOpenDialog: (): Promise<string | null> => api.project.showOpenDialog(),
   showCreateDialog: (): Promise<string | null> => api.project.showCreateDialog(),
@@ -107,6 +108,8 @@ export const labelApi = {
 export const settingsApi = {
   get: (): Promise<AppSettings> => api.settings.get(),
   set: (partial: Partial<AppSettings>): Promise<AppSettings> => api.settings.set(partial),
+  onChanged: (callback: (settings: AppSettings) => void): (() => void) =>
+    api.settings.onChanged(callback),
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────

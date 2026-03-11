@@ -65,10 +65,10 @@ export const useAnnotationStore = create<AnnotationState>()(
         throw new Error('Create or select a label before drawing annotations.')
       }
 
-      // Auto-advance image status: unlabeled → in_progress on first annotation
+      // Auto-advance image status: any labeled annotation marks the image as labeled
       const isFirst = get().annotations.length === 0
       if (isFirst) {
-        imageApi.updateStatus(imageId, 'in_progress').catch(() => {/* best-effort */})
+        imageApi.updateStatus(imageId, 'labeled').catch(() => {/* best-effort */})
       }
 
       // Optimistic — add placeholder
@@ -148,8 +148,15 @@ export const useAnnotationStore = create<AnnotationState>()(
       await annotationApi.delete(id)
 
       // Refresh image in sidebar to update annotation_count badge
-      imageApi.get(annotation.image_id).then((img) => {
-        if (img) useImageStore.getState().updateImageInList(img)
+      imageApi.get(annotation.image_id).then(async (img) => {
+        if (!img) return
+        if (img.annotation_count === 0 && img.status !== 'approved') {
+          await imageApi.updateStatus(annotation.image_id, 'unlabeled').catch(() => {/* best-effort */})
+          const refreshed = await imageApi.get(annotation.image_id)
+          if (refreshed) useImageStore.getState().updateImageInList(refreshed)
+          return
+        }
+        useImageStore.getState().updateImageInList(img)
       }).catch(() => {/* best-effort */})
     },
 

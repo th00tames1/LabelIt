@@ -14,7 +14,6 @@ class SAMPredictRequest(BaseModel):
     points: list[list[float]]        # [[nx, ny], ...] normalized 0-1
     point_labels: list[int]          # 1=foreground, 0=background
     box: Optional[list[float]] = None   # [x1, y1, x2, y2] normalized, optional
-    text: Optional[str] = None       # SAM 3: concept/text prompt ("car", "person")
     multimask: bool = True
 
 
@@ -22,7 +21,7 @@ class SAMPredictResponse(BaseModel):
     contours: list[list[list[float]]]  # [[[nx, ny], ...], ...] normalized
     score: float
     processing_time_ms: float
-    mode: str                          # "point" | "text" — which mode was used
+    mode: str                          # "point"
     runtime: dict
 
 
@@ -33,7 +32,7 @@ async def predict(request: SAMPredictRequest):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 image")
 
-    mode = "text" if (request.text and request.text.strip()) else "point"
+    mode = "point"
 
     t0 = time.perf_counter()
     try:
@@ -42,7 +41,6 @@ async def predict(request: SAMPredictRequest):
             points=request.points,
             point_labels=request.point_labels,
             box=request.box,
-            text=request.text,
             multimask=request.multimask,
         )
     except Exception as e:

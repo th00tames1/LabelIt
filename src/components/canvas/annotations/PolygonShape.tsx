@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Line, Circle, Text, Rect } from 'react-konva'
 import type Konva from 'konva'
 import type { Annotation, AnnotationGeometry, PolygonGeometry } from '../../../types'
@@ -9,6 +10,7 @@ interface Props {
   imgX: number; imgY: number; imgW: number; imgH: number
   labelName?: string
   onSelect: () => void
+  onSelectAtPointer: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
 }
 
@@ -16,15 +18,18 @@ export default function PolygonShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
   labelName,
-  onSelect, onUpdateGeometry,
+  onSelect, onSelectAtPointer, onUpdateGeometry,
 }: Props) {
   const geo = annotation.geometry as PolygonGeometry
   const isClosed = geo.type === 'polygon'
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [livePoints, setLivePoints] = useState<[number, number][] | null>(null)
+  const renderPoints = livePoints ?? geo.points
 
   // Flatten points for Konva Line: [x1, y1, x2, y2, ...]
-  const flatPoints = geo.points.flatMap(([nx, ny]) => [
-    imgX + nx * imgW,
-    imgY + ny * imgH,
+  const flatPoints = renderPoints.flatMap(([nx, ny]) => [
+    imgX + nx * imgW + dragOffset.x,
+    imgY + ny * imgH + dragOffset.y,
   ])
 
   const handleVertexDragEnd = (index: number, newX: number, newY: number) => {
@@ -33,7 +38,16 @@ export default function PolygonShape({
     const newPoints = geo.points.map(([px, py], i) =>
       i === index ? ([nx, ny] as [number, number]) : ([px, py] as [number, number])
     )
+    setLivePoints(null)
     onUpdateGeometry({ ...geo, points: newPoints })
+  }
+
+  const handleVertexDragMove = (index: number, newX: number, newY: number) => {
+    const nx = Math.max(0, Math.min(1, (newX - imgX) / imgW))
+    const ny = Math.max(0, Math.min(1, (newY - imgY) / imgH))
+    setLivePoints(geo.points.map(([px, py], i) =>
+      i === index ? ([nx, ny] as [number, number]) : ([px, py] as [number, number])
+    ))
   }
 
   // Right-click a vertex to delete it (minimum 3 vertices required for polygon)
@@ -45,9 +59,30 @@ export default function PolygonShape({
     onUpdateGeometry({ ...geo, points: newPoints })
   }
 
+  const setCursor = (target: { getStage: () => { container: () => HTMLDivElement } | null }, cursor: string) => {
+    target.getStage()?.container().style.setProperty('cursor', cursor)
+  }
+
+  const clamp = (value: number) => Math.max(0, Math.min(1, value))
+
+  const handlePolygonDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
+    const node = e.target
+    const dx = node.x() / imgW
+    const dy = node.y() / imgH
+    node.position({ x: 0, y: 0 })
+    setDragOffset({ x: 0, y: 0 })
+
+    onUpdateGeometry({
+      ...geo,
+      points: geo.points.map(([x, y]) => [clamp(x + dx), clamp(y + dy)] as [number, number]),
+    })
+    setCursor(node, 'move')
+  }
+
   // Click on the edge line to insert a vertex between the two nearest vertices
   const handleEdgeClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (!isSelected) { onSelect(); return }
+    if (!isSelected) { onSelectAtPointer(); return }
+    if (onSelectAtPointer()) return
     e.cancelBubble = true
     const stage = e.target.getStage()
     if (!stage) return
@@ -58,14 +93,14 @@ export default function PolygonShape({
     const clickNy = Math.max(0, Math.min(1, (pos.y - imgY) / imgH))
 
     // Find the edge closest to the click point
-    const n = geo.points.length
+    const n = renderPoints.length
     let bestEdge = 0
     let bestDist = Infinity
 
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n
-      const [ax, ay] = geo.points[i]
-      const [bx, by] = geo.points[j]
+      const [ax, ay] = renderPoints[i]
+      const [bx, by] = renderPoints[j]
       // Point-to-segment distance in normalized space
       const abx = bx - ax; const aby = by - ay
       const len2 = abx * abx + aby * aby
@@ -79,10 +114,11 @@ export default function PolygonShape({
 
     // Insert new point after bestEdge index
     const newPoints = [
-      ...geo.points.slice(0, bestEdge + 1),
+      ...renderPoints.slice(0, bestEdge + 1),
       [clickNx, clickNy] as [number, number],
-      ...geo.points.slice(bestEdge + 1),
+      ...renderPoints.slice(bestEdge + 1),
     ]
+    setLivePoints(null)
     onUpdateGeometry({ ...geo, points: newPoints })
   }
 
@@ -97,6 +133,8 @@ export default function PolygonShape({
   const showTag = isClosed && !!annotation.label_class_id && !!labelName
   const tagW = Math.max(40, (labelName?.length ?? 0) * 7 + 8)
   const tagH = 16
+  const liveCx = cx + dragOffset.x
+  const liveCy = cy + dragOffset.y
 
   return (
     <>
@@ -106,8 +144,14 @@ export default function PolygonShape({
         strokeWidth={isSelected ? 2 : 1.5}
         fill={isClosed ? `${color}22` : undefined}
         closed={isClosed}
+        draggable={isSelected}
         onClick={handleEdgeClick}
         onTap={onSelect}
+        onDragStart={(e) => { onSelect(); setDragOffset({ x: 0, y: 0 }); setCursor(e.target, 'grabbing') }}
+        onDragMove={(e) => setDragOffset({ x: e.target.x(), y: e.target.y() })}
+        onDragEnd={handlePolygonDragEnd}
+        onMouseEnter={(e) => setCursor(e.target, isSelected ? 'move' : 'pointer')}
+        onMouseLeave={(e) => setCursor(e.target, 'crosshair')}
         perfectDrawEnabled={false}
         hitStrokeWidth={8}
       />
@@ -116,7 +160,7 @@ export default function PolygonShape({
       {showTag && (
         <>
           <Rect
-            x={cx - tagW / 2} y={cy - tagH / 2}
+            x={liveCx - tagW / 2} y={liveCy - tagH / 2}
             width={tagW} height={tagH}
             fill={color}
             opacity={0.85}
@@ -125,7 +169,7 @@ export default function PolygonShape({
             perfectDrawEnabled={false}
           />
           <Text
-            x={cx - tagW / 2 + 4} y={cy - tagH / 2 + 3}
+            x={liveCx - tagW / 2 + 4} y={liveCy - tagH / 2 + 3}
             text={labelName!}
             fontSize={10}
             fontStyle="bold"
@@ -137,19 +181,23 @@ export default function PolygonShape({
       )}
 
       {/* Vertex handles — right-click to delete, drag to move */}
-      {isSelected && geo.points.map(([nx, ny], i) => (
+      {isSelected && renderPoints.map(([nx, ny], i) => (
         <Circle
           key={i}
-          x={imgX + nx * imgW}
-          y={imgY + ny * imgH}
+          x={imgX + nx * imgW + dragOffset.x}
+          y={imgY + ny * imgH + dragOffset.y}
           radius={5}
           fill="white"
           stroke={color}
           strokeWidth={1.5}
           draggable
-          onDragEnd={(e) => handleVertexDragEnd(i, e.target.x(), e.target.y())}
+          onDragStart={(e) => { setLivePoints(renderPoints); setCursor(e.target, 'grabbing') }}
+          onDragMove={(e) => handleVertexDragMove(i, e.target.x(), e.target.y())}
+          onDragEnd={(e) => { handleVertexDragEnd(i, e.target.x(), e.target.y()); setCursor(e.target, 'pointer') }}
           onContextMenu={(e) => handleVertexRightClick(e, i)}
           onClick={(e) => e.cancelBubble = true}
+          onMouseEnter={(e) => setCursor(e.target, 'pointer')}
+          onMouseLeave={(e) => setCursor(e.target, 'crosshair')}
           perfectDrawEnabled={false}
         />
       ))}

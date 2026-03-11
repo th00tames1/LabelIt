@@ -3,6 +3,7 @@ import HomePage from './pages/Home/HomePage'
 import AnnotatePage from './pages/Annotate/AnnotatePage'
 import { useProjectStore } from './store/projectStore'
 import { useUIStore } from './store/uiStore'
+import { useSettingsStore } from './store/settingsStore'
 import { sidecarClient } from './api/sidecar'
 
 type Page = 'home' | 'annotate'
@@ -12,6 +13,7 @@ export default function App() {
   const currentProject = useProjectStore((s) => s.currentProject)
   const setSidecarOnline = useUIStore((s) => s.setSidecarOnline)
   const setSidecarRuntime = useUIStore((s) => s.setSidecarRuntime)
+  const theme = useSettingsStore((s) => s.settings.theme)
 
   // Poll sidecar health every 5 seconds
   useEffect(() => {
@@ -24,6 +26,14 @@ export default function App() {
     const interval = setInterval(check, 5000)
     return () => clearInterval(interval)
   }, [setSidecarOnline, setSidecarRuntime])
+
+  useEffect(() => {
+    const resolvedTheme = theme === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      : theme
+
+    document.documentElement.dataset.theme = resolvedTheme
+  }, [theme])
 
   // Navigate to annotate page when a project is open
   useEffect(() => {

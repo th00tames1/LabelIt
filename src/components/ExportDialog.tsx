@@ -189,16 +189,18 @@ export default function ExportDialog({ onClose }: Props) {
           </div>
 
           {/* Include images checkbox */}
-          {showIncludeImages && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={includeImages}
-                onChange={(e) => setIncludeImages(e.target.checked)}
-              />
-              <span style={{ color: 'var(--text-primary)' }}>{text.copyImages}</span>
-            </label>
-          )}
+          <div style={{ minHeight: 28, display: 'flex', alignItems: 'center' }}>
+            {showIncludeImages && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={includeImages}
+                  onChange={(e) => setIncludeImages(e.target.checked)}
+                />
+                <span style={{ color: 'var(--text-primary)' }}>{text.copyImages}</span>
+              </label>
+            )}
+          </div>
 
           {/* Output path */}
           <div>

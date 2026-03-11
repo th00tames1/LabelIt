@@ -2,7 +2,7 @@ import { ipcMain, dialog, app } from 'electron'
 import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
 import { openDatabase, closeDatabase } from '../db/database'
-import { initProjectMeta, getProjectMeta } from '../db/repositories/project.repo'
+import { initProjectMeta, getProjectMeta, setProjectName } from '../db/repositories/project.repo'
 import type { RecentProject } from '../db/schema'
 import ElectronStore from 'electron-store'
 
@@ -53,6 +53,20 @@ export function registerProjectIpc(): void {
   })
 
   ipcMain.handle('project:getMeta', async () => getProjectMeta())
+
+  ipcMain.handle('project:updateName', async (_event, name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) throw new Error('Project name cannot be empty')
+    setProjectName(trimmed)
+    if (currentProjectDir) {
+      const filePath = join(currentProjectDir, 'project.lbl')
+      const recent = (recentStore.get('recent') as RecentProject[]).map((project) =>
+        project.file_path === filePath ? { ...project, name: trimmed } : project,
+      )
+      recentStore.set('recent', recent)
+    }
+    return getProjectMeta()
+  })
 
   ipcMain.handle('project:listRecent', async () => {
     return (recentStore.get('recent') as RecentProject[]).filter(

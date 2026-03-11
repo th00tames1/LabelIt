@@ -4,6 +4,7 @@ import { useProjectStore } from '../../store/projectStore'
 import type { RecentProject } from '../../types'
 import { useI18n } from '../../i18n'
 import LanguageSwitcher from '../../components/LanguageSwitcher'
+import ThemeSwitcher from '../../components/ThemeSwitcher'
 
 export default function HomePage() {
   const [showNewProject, setShowNewProject] = useState(false)
@@ -94,40 +95,19 @@ export default function HomePage() {
           position: absolute;
           top: 24px;
           right: 24px;
+          display: flex;
+          gap: 8px;
         }
         .home-panel {
           width: min(820px, 100%);
           padding: 52px 54px 40px;
           border-radius: 28px;
-          border: 1px solid rgba(255,255,255,0.08);
+          border: 1px solid var(--home-panel-border);
           background:
-            linear-gradient(145deg, rgba(44, 28, 20, 0.95), rgba(23, 16, 11, 0.94)),
+            var(--home-panel-bg),
             radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.18), transparent 30%);
           box-shadow: var(--shadow-lg);
           backdrop-filter: blur(10px);
-        }
-        .home-kicker {
-          display: inline-flex;
-          align-items: center;
-          gap: 10px;
-          margin-bottom: 18px;
-          padding: 8px 14px;
-          border-radius: 999px;
-          border: 1px solid rgba(var(--accent-rgb), 0.35);
-          background: rgba(var(--accent-rgb), 0.12);
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-          color: #ffd6c7;
-        }
-        .home-kicker::before {
-          content: '';
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: var(--accent);
-          box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.6);
         }
         .home-header {
           text-align: center;
@@ -191,7 +171,7 @@ export default function HomePage() {
         .recent-section h2 {
           font-size: 13px;
           font-weight: 600;
-          color: #f4b9a4;
+          color: var(--home-section-title);
           text-transform: uppercase;
           letter-spacing: 0.16em;
           margin-bottom: 14px;
@@ -203,8 +183,8 @@ export default function HomePage() {
         }
         .recent-card {
           position: relative;
-          background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.02));
-          border: 1px solid rgba(255,255,255,0.08);
+          background: var(--home-card-bg);
+          border: 1px solid var(--home-card-border);
           border-radius: 18px;
           padding: 18px;
           cursor: pointer;
@@ -222,7 +202,7 @@ export default function HomePage() {
         }
         .recent-card:hover {
           border-color: rgba(var(--accent-rgb), 0.42);
-          background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.12), rgba(255,255,255,0.03));
+          background: var(--home-card-hover);
           transform: translateY(-2px);
         }
         .recent-card-name {
@@ -243,15 +223,15 @@ export default function HomePage() {
         .modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0,0,0,0.7);
+          background: var(--home-overlay-bg);
           display: flex;
           align-items: center;
           justify-content: center;
           z-index: 100;
         }
         .modal {
-          background: linear-gradient(145deg, rgba(44, 28, 20, 0.98), rgba(23, 16, 11, 0.98));
-          border: 1px solid rgba(255,255,255,0.08);
+          background: var(--home-modal-bg);
+          border: 1px solid var(--home-panel-border);
           border-radius: 20px;
           padding: 28px;
           width: 420px;
@@ -305,12 +285,12 @@ export default function HomePage() {
       `}</style>
 
       <div className="home-toolbar">
+        <ThemeSwitcher />
         <LanguageSwitcher />
       </div>
 
       <div className="home-panel">
         <div className="home-header">
-          <div className="home-kicker">{t('home.brandRibbon')}</div>
           <h1>LabelingTool</h1>
           <p>{t('home.subtitle')}</p>
         </div>

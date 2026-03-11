@@ -1,10 +1,8 @@
+import { useEffect, useState } from 'react'
 import { useProjectStore } from '../../../store/projectStore'
 import { useUIStore } from '../../../store/uiStore'
-import { useLabelStore } from '../../../store/labelStore'
 import { projectApi } from '../../../api/ipc'
 import { useI18n } from '../../../i18n'
-import LanguageSwitcher from '../../LanguageSwitcher'
-import type { ToolType } from '../../../types'
 
 interface Props {
   onGoHome: () => void
@@ -13,33 +11,23 @@ interface Props {
   onAutoLabel: () => void
 }
 
-const TOOLS: { type: ToolType; labelKey: string; shortcut: string }[] = [
-  { type: 'select', labelKey: 'topbar.selectTool', shortcut: 'V' },
-  { type: 'bbox', labelKey: 'topbar.bboxTool', shortcut: 'W' },
-  { type: 'polygon', labelKey: 'topbar.polygonTool', shortcut: 'E' },
-  { type: 'keypoint', labelKey: 'topbar.keypointTool', shortcut: 'K' },
-  { type: 'sam', labelKey: 'sam', shortcut: 'S' },
-]
-
-const TOOL_BUTTON_WIDTH = 94
 const CONTROL_HEIGHT = 30
 
 export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }: Props) {
   const project = useProjectStore((s) => s.currentProject)
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject)
-  const activeTool = useUIStore((s) => s.activeTool)
-  const setActiveTool = useUIStore((s) => s.setActiveTool)
+  const updateCurrentProjectName = useProjectStore((s) => s.updateCurrentProjectName)
   const sidecarOnline = useUIStore((s) => s.sidecarOnline)
   const sidecarRuntime = useUIStore((s) => s.sidecarRuntime)
-  const activeLabelClassId = useUIStore((s) => s.activeLabelClassId)
-  const annotationsVisible = useUIStore((s) => s.annotationsVisible)
-  const toggleAnnotationsVisible = useUIStore((s) => s.toggleAnnotationsVisible)
   const setShowShortcutsHelp = useUIStore((s) => s.setShowShortcutsHelp)
-  const labels = useLabelStore((s) => s.labels)
   const { t } = useI18n()
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [draftName, setDraftName] = useState('')
 
-  const activeLabel = labels.find((l) => l.id === activeLabelClassId)
-  const drawingLocked = labels.length === 0
+  useEffect(() => {
+    setDraftName(project?.name ?? '')
+  }, [project?.name])
+
   const aiStatusText = !sidecarOnline
     ? t('topbar.aiOff')
     : sidecarRuntime?.acceleration === 'gpu'
@@ -52,23 +40,28 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
     : sidecarRuntime != null
       ? `${aiStatusText} · ${sidecarRuntime.device_label}`
       : t('topbar.aiOn')
-  const toolButtons = TOOLS.map((tool) => {
-    const label = tool.labelKey === 'sam' ? 'SAM' : t(tool.labelKey)
-    const disabled = (tool.type !== 'select' && drawingLocked)
-      || (tool.type === 'sam' && !sidecarOnline)
-    const title = disabled
-      ? drawingLocked && tool.type !== 'select'
-        ? t('topbar.toolLocked')
-        : t('topbar.aiOffline')
-      : `${label} (${tool.shortcut})`
-
-    return { ...tool, label, disabled, title }
-  })
-
   const handleClose = async () => {
     await projectApi.close()
     setCurrentProject(null)
     onGoHome()
+  }
+
+  const handleSaveProjectName = async () => {
+    if (!project) return
+    const trimmed = draftName.trim()
+    if (!trimmed) {
+      setDraftName(project.name)
+      setIsEditingName(false)
+      return
+    }
+    if (trimmed === project.name) {
+      setIsEditingName(false)
+      return
+    }
+    const updated = await projectApi.updateName(trimmed)
+    setCurrentProject(updated)
+    updateCurrentProjectName(updated.name)
+    setIsEditingName(false)
   }
 
   return (
@@ -103,94 +96,39 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
       <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
 
       {/* Project name */}
-      <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
-        {project?.name}
-      </span>
+      {isEditingName ? (
+        <input
+          autoFocus
+          value={draftName}
+          onChange={(e) => setDraftName(e.target.value)}
+          onBlur={() => handleSaveProjectName().catch(console.error)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSaveProjectName().catch(console.error)
+            if (e.key === 'Escape') {
+              setDraftName(project?.name ?? '')
+              setIsEditingName(false)
+            }
+          }}
+          style={{ width: 220, fontWeight: 600, fontSize: 14, padding: '4px 8px' }}
+        />
+      ) : (
+        <button
+          onClick={() => setIsEditingName(true)}
+          title="Rename project"
+          style={{
+            padding: '4px 8px',
+            borderRadius: 6,
+            color: 'var(--text-primary)',
+            fontWeight: 600,
+            fontSize: 14,
+            background: 'transparent',
+          }}
+        >
+          {project?.name}
+        </button>
+      )}
 
       <div style={{ flex: 1 }} />
-
-      {/* Active label indicator — always visible while drawing */}
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          minWidth: 140,
-          height: CONTROL_HEIGHT,
-          padding: '3px 10px', borderRadius: 5,
-          background: activeLabel ? `${activeLabel.color}22` : 'var(--bg-tertiary)',
-          border: `1px solid ${activeLabel ? activeLabel.color + '55' : 'var(--border)'}`,
-          flexShrink: 0,
-        }}
-        title={drawingLocked
-          ? t('topbar.activeLabelMissingTitle')
-          : t('topbar.activeLabelTitle')}
-      >
-        {activeLabel ? (
-          <>
-            <div style={{
-              width: 10, height: 10, borderRadius: '50%',
-              background: activeLabel.color, flexShrink: 0,
-            }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: activeLabel.color, whiteSpace: 'nowrap' }}>
-              {activeLabel.name}
-            </span>
-            <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 2 }}>
-              ({labels.indexOf(activeLabel) + 1})
-            </span>
-          </>
-        ) : (
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('topbar.activeLabelMissing')}</span>
-        )}
-      </div>
-
-      <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
-
-      {/* Tool selector */}
-      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-        {toolButtons.map((tool) => (
-          <button
-            key={tool.type}
-            onClick={() => setActiveTool(tool.type)}
-            title={tool.title}
-            style={{
-              width: TOOL_BUTTON_WIDTH,
-              height: CONTROL_HEIGHT,
-              padding: '4px 10px',
-              borderRadius: 5,
-              fontSize: 12,
-              fontWeight: 500,
-              background: activeTool === tool.type ? 'var(--accent)' : 'var(--bg-tertiary)',
-              color: activeTool === tool.type ? 'white' : 'var(--text-secondary)',
-              border: `1px solid ${activeTool === tool.type ? 'var(--accent)' : 'var(--border)'}`,
-              opacity: tool.disabled ? 0.4 : 1,
-              cursor: tool.disabled ? 'not-allowed' : 'pointer',
-              boxSizing: 'border-box',
-              flexShrink: 0,
-            }}
-            disabled={tool.disabled}
-          >
-            {tool.label}
-            <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.6 }}>{tool.shortcut}</span>
-          </button>
-        ))}
-      </div>
-
-      <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
-
-      {/* Annotation visibility toggle */}
-      <button
-        onClick={toggleAnnotationsVisible}
-        title={annotationsVisible ? t('topbar.hideAnnotations') : t('topbar.showAnnotations')}
-        style={{
-          width: 104, height: CONTROL_HEIGHT, padding: '4px 10px', borderRadius: 5, fontSize: 12,
-          background: annotationsVisible ? 'var(--bg-tertiary)' : 'rgba(var(--warning-rgb),0.16)',
-          border: `1px solid ${annotationsVisible ? 'var(--border)' : 'rgba(var(--warning-rgb),0.45)'}`,
-          color: annotationsVisible ? 'var(--text-secondary)' : 'var(--warning)',
-          cursor: 'pointer',
-          flexShrink: 0,
-        }}
-      >
-        {annotationsVisible ? `👁 ${t('topbar.visibilityVisible')}` : `🚫 ${t('topbar.visibilityHidden')}`}
-      </button>
 
       {/* AI actions */}
       <button
@@ -236,8 +174,6 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           {t('topbar.export')}
         </button>
 
-      <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
-
       {/* Help button */}
         <button
           onClick={() => setShowShortcutsHelp(true)}
@@ -251,8 +187,6 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
       >
         {t('topbar.shortcuts')}
       </button>
-
-      <LanguageSwitcher compact />
 
       {/* AI status */}
       <div

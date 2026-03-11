@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useLabelStore } from '../../../store/labelStore'
+import { useAnnotationStore } from '../../../store/annotationStore'
+import { useUIStore } from '../../../store/uiStore'
 import { useI18n } from '../../../i18n'
 
 const PRESET_COLORS = [
@@ -9,6 +11,10 @@ const PRESET_COLORS = [
 
 export default function LabelManager() {
   const { labels, createLabel, updateLabel, deleteLabel } = useLabelStore()
+  const selectedAnnotationId = useAnnotationStore((s) => s.selectedId)
+  const updateAnnotationLabel = useAnnotationStore((s) => s.updateLabel)
+  const activeLabelClassId = useUIStore((s) => s.activeLabelClassId)
+  const setActiveLabelClassId = useUIStore((s) => s.setActiveLabelClassId)
   const { t } = useI18n()
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
@@ -38,6 +44,13 @@ export default function LabelManager() {
     await updateLabel(id, { color })
   }
 
+  const handlePickLabel = async (labelId: string) => {
+    setActiveLabelClassId(labelId)
+    if (selectedAnnotationId) {
+      await updateAnnotationLabel(selectedAnnotationId, labelId)
+    }
+  }
+
   return (
     <div style={{ height: '100%', overflow: 'auto' }}>
       {/* Add label form */}
@@ -62,6 +75,7 @@ export default function LabelManager() {
             <button
               key={c}
               onClick={() => setNewColor(c)}
+              onMouseDown={(e) => e.stopPropagation()}
               style={{
                 width: 20, height: 20, borderRadius: '50%',
                 background: c,
@@ -99,11 +113,14 @@ export default function LabelManager() {
         {labels.map((label, idx) => (
           <div
             key={label.id}
+            onClick={() => handlePickLabel(label.id).catch(console.error)}
             style={{
               padding: '6px 10px',
               display: 'flex',
               alignItems: 'center',
               gap: 8,
+              cursor: 'pointer',
+              background: activeLabelClassId === label.id ? 'var(--bg-hover)' : 'transparent',
             }}
           >
             {/* Color swatch / picker — click to open full color picker */}
@@ -112,6 +129,7 @@ export default function LabelManager() {
                 type="color"
                 value={label.color}
                 onChange={(e) => handleColorChange(label.id, e.target.value)}
+                onClick={(e) => e.stopPropagation()}
                 title={t('labelManager.changeColor')}
                 style={{
                   width: 18, height: 18, borderRadius: '50%',
@@ -173,6 +191,7 @@ export default function LabelManager() {
                 <button
                   key={c}
                   onClick={() => handleColorChange(label.id, c)}
+                  onMouseDown={(e) => e.stopPropagation()}
                   title={c}
                   style={{
                     width: 10, height: 10, borderRadius: '50%',
@@ -185,7 +204,10 @@ export default function LabelManager() {
 
             {/* Delete */}
             <button
-              onClick={() => deleteLabel(label.id)}
+              onClick={(e) => {
+                e.stopPropagation()
+                deleteLabel(label.id)
+              }}
               style={{ padding: '2px 5px', fontSize: 11, color: 'var(--text-muted)', opacity: 0.7 }}
               title={t('labelManager.delete')}
             >

@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
+import { settingsApi } from './api/ipc'
 import { useProjectStore } from './store/projectStore'
 import { useImageStore } from './store/imageStore'
 import { useLabelStore } from './store/labelStore'
@@ -20,6 +21,10 @@ import { useSettingsStore } from './store/settingsStore'
 }
 
 useSettingsStore.getState().load().finally(() => {
+  settingsApi.onChanged((settings) => {
+    useSettingsStore.setState({ settings, isLoaded: true, isSaving: false })
+  })
+
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <React.StrictMode>
       <App />

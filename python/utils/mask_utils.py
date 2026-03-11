@@ -24,24 +24,24 @@ def mask_to_contours(
     import cv2
 
     mask_uint8 = (mask.astype(np.uint8) * 255)
-    contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
+    contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+
+    filtered = [contour for contour in contours if cv2.contourArea(contour) >= min_area]
+    filtered.sort(key=cv2.contourArea, reverse=True)
 
     result = []
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area < min_area:
-            continue
-
+    for contour in filtered:
         # Simplify contour (Douglas-Peucker)
-        epsilon = 0.003 * cv2.arcLength(contour, True)
+        epsilon = max(1.5, 0.002 * cv2.arcLength(contour, True))
         approx = cv2.approxPolyDP(contour, epsilon, True)
 
         if len(approx) < 3:
             continue
 
+        approx_points = approx.reshape(-1, 2).tolist()
         normalized = [
-            [float(pt[0][0]) / img_w, float(pt[0][1]) / img_h]
-            for pt in approx
+            [float(x) / img_w, float(y) / img_h]
+            for x, y in approx_points
         ]
         result.append(normalized)
 

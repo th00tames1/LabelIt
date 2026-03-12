@@ -125,11 +125,14 @@ export default function App() {
         <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
       </>
     )
-  }
+      }
 
   return (
     <>
-      <HomePage openCreateModalSignal={homeCreateModalSignal} />
+      <HomePage
+        openCreateModalSignal={homeCreateModalSignal}
+        onCreateModalSignalHandled={() => setHomeCreateModalSignal(0)}
+      />
       <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
     </>
   )

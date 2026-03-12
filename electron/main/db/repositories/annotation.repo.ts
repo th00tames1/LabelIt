@@ -4,7 +4,7 @@ import type {
   Annotation, AnnotationGeometry, AnnotationType, AnnotationSource,
   CreateAnnotationDto, UpdateAnnotationDto
 } from '../schema'
-import { ensureInProgress } from './image.repo'
+import { ensureInProgress, syncImageStatus } from './image.repo'
 
 interface AnnotationRow {
   id: string
@@ -70,11 +70,14 @@ export function createAnnotation(imageId: string, dto: CreateAnnotationDto): Ann
 
   // Auto-progress image status from unlabeled
   ensureInProgress(imageId)
+  syncImageStatus(imageId)
 
   return getAnnotation(id)!
 }
 
 export function updateAnnotation(id: string, dto: UpdateAnnotationDto): Annotation {
+  const existing = getAnnotation(id)
+  if (!existing) throw new Error(`Annotation not found: ${id}`)
   const db = getDatabase()
   const fields: string[] = ['updated_at = ?']
   const values: unknown[] = [Date.now()]
@@ -84,11 +87,14 @@ export function updateAnnotation(id: string, dto: UpdateAnnotationDto): Annotati
   if (dto.confidence !== undefined) { fields.push('confidence = ?'); values.push(dto.confidence) }
 
   db.prepare(`UPDATE annotations SET ${fields.join(', ')} WHERE id = ?`).run(...values, id)
+  syncImageStatus(existing.image_id)
   return getAnnotation(id)!
 }
 
 export function deleteAnnotation(id: string): void {
+  const existing = getAnnotation(id)
   getDatabase().prepare('DELETE FROM annotations WHERE id = ?').run(id)
+  if (existing) syncImageStatus(existing.image_id)
 }
 
 export function bulkCreate(imageId: string, dtos: CreateAnnotationDto[]): Annotation[] {
@@ -113,15 +119,24 @@ export function bulkCreate(imageId: string, dtos: CreateAnnotationDto[]): Annota
   })
   tx()
 
-  if (ids.length > 0) ensureInProgress(imageId)
+  if (ids.length > 0) {
+    ensureInProgress(imageId)
+    syncImageStatus(imageId)
+  }
 
   return ids.map((id) => getAnnotation(id)!)
 }
 
 export function bulkDelete(ids: string[]): void {
   if (ids.length === 0) return
+  const imageIds = Array.from(new Set(
+    ids
+      .map((id) => getAnnotation(id)?.image_id)
+      .filter((imageId): imageId is string => imageId != null)
+  ))
   const placeholders = ids.map(() => '?').join(', ')
   getDatabase().prepare(`DELETE FROM annotations WHERE id IN (${placeholders})`).run(...ids)
+  imageIds.forEach((imageId) => syncImageStatus(imageId))
 }
 
 export function countByClass(): { label_class_id: string | null; count: number }[] {

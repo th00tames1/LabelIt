@@ -78,6 +78,7 @@ export interface Image {
   width: number
   height: number
   file_size: number
+  is_null: boolean
   status: ImageStatus
   split: SplitType
   imported_at: number
@@ -167,6 +168,7 @@ export interface ExportResult {
 
 export interface AugmentationRecipe {
   tiling_enabled: boolean
+  tiling_grid: number
   auto_orient_enabled: boolean
   isolate_objects_enabled: boolean
   resize_enabled: boolean
@@ -214,7 +216,7 @@ export interface DatasetVersionInput {
 }
 
 export interface FinishImageIssue {
-  code: 'missing_annotations' | 'missing_labels' | 'unassigned_split'
+  code: 'missing_annotations' | 'missing_labels' | 'unassigned_split' | 'status_unlabeled'
   label: string
 }
 

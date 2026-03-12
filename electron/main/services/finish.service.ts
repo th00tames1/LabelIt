@@ -56,11 +56,25 @@ interface ResolvedSample {
   height: number
   split: SplitType
   annotations: Annotation[]
+  tile?: TileRegion
   transform: MaterializedTransform | null
 }
 
+interface TileRegion {
+  left: number
+  top: number
+  width: number
+  height: number
+  row: number
+  col: number
+  grid: number
+}
+
+interface SampleSeed extends Omit<ResolvedSample, 'transform'> {}
+
 const DEFAULT_RECIPE: AugmentationRecipe = {
   tiling_enabled: false,
+  tiling_grid: 2,
   auto_orient_enabled: false,
   isolate_objects_enabled: false,
   resize_enabled: false,
@@ -233,8 +247,11 @@ function toFinishImageItem(image: Image): FinishImageItem {
   const annotations = listForImage(image.id)
   const issues: FinishImageIssue[] = []
 
-  if (annotations.length === 0) {
+  if (annotations.length === 0 && !image.is_null) {
     issues.push({ code: 'missing_annotations', label: 'No annotations yet' })
+  }
+  if (annotations.length > 0 && image.status === 'unlabeled' && !image.is_null) {
+    issues.push({ code: 'status_unlabeled', label: 'Image status is still unlabeled' })
   }
   if (annotations.some((annotation) => annotation.label_class_id == null)) {
     issues.push({ code: 'missing_labels', label: 'Some annotations still need a class' })
@@ -264,6 +281,7 @@ function normalizeRecipe(recipe: AugmentationRecipe): AugmentationRecipe {
 
   return {
     tiling_enabled: Boolean(candidate.tiling_enabled),
+    tiling_grid: clampInt(candidate.tiling_grid, 2, 8),
     auto_orient_enabled: Boolean(candidate.auto_orient_enabled),
     isolate_objects_enabled: Boolean(candidate.isolate_objects_enabled),
     resize_enabled: Boolean(candidate.resize_enabled),
@@ -277,17 +295,17 @@ function normalizeRecipe(recipe: AugmentationRecipe): AugmentationRecipe {
     rotate_cw90_enabled: Boolean(candidate.rotate_cw90_enabled),
     rotate_cw270_enabled: Boolean(candidate.rotate_cw270_enabled),
     shear_enabled: Boolean(candidate.shear_enabled),
-    shear_range: clampSigned(candidate.shear_range, 18),
+    shear_range: clampNumber(Math.abs(candidate.shear_range), 0, 30),
     brightness_enabled: Boolean(candidate.brightness_enabled),
-    brightness_range: clampSigned(candidate.brightness_range, 0.45),
+    brightness_range: clampNumber(Math.abs(candidate.brightness_range), 0, 0.3),
     contrast_enabled: Boolean(candidate.contrast_enabled),
-    contrast_range: clampSigned(candidate.contrast_range, 0.55),
+    contrast_range: clampNumber(Math.abs(candidate.contrast_range), 0, 0.3),
     saturation_enabled: Boolean(candidate.saturation_enabled),
-    saturation_range: clampSigned(candidate.saturation_range, 0.8),
+    saturation_range: clampNumber(Math.abs(candidate.saturation_range), 0, 0.3),
     hue_enabled: Boolean(candidate.hue_enabled),
-    hue_range: clampSigned(candidate.hue_range, 45),
+    hue_range: clampNumber(Math.abs(candidate.hue_range), 0, 30),
     blur_enabled: Boolean(candidate.blur_enabled),
-    blur_range: clampSigned(candidate.blur_range, 3),
+    blur_range: clampNumber(Math.abs(candidate.blur_range), 0, 3),
   }
 }
 
@@ -301,7 +319,7 @@ function buildResolvedSamples(version: DatasetVersion, split?: SplitType): Resol
   return images.flatMap((image) => {
     const annotations = listForImage(image.id)
     if (version.kind !== 'augmented' || version.recipe == null) {
-      return [{
+      return [createResolvedSample({
         id: image.id,
         filename: image.filename,
         file_path: image.file_path,
@@ -309,29 +327,34 @@ function buildResolvedSamples(version: DatasetVersion, split?: SplitType): Resol
         height: image.height,
         split: image.split,
         annotations,
-        transform: null,
-      }]
+      }, null)]
     }
 
-    const samples: ResolvedSample[] = []
-    const baseTransform = createMaterializedTransform(version.recipe, mulberry32(hashString(`${version.id}:${image.id}:base`)), false)
-    samples.push(createResolvedSample(image, annotations, image.filename, baseTransform))
+    const recipe = version.recipe
+    const seeds = buildSampleSeeds(image, annotations, recipe)
+    const samples: ResolvedSample[] = seeds.map((seed: SampleSeed) => {
+      const baseTransform = createMaterializedTransform(recipe, mulberry32(hashString(`${version.id}:${seed.id}:base`)), false)
+      return createResolvedSample(seed, baseTransform)
+    })
 
-    if (image.split !== 'train' || !hasAugmentationEffect(version.recipe)) {
+    if (image.split !== 'train' || !hasAugmentationEffect(recipe)) {
       return samples
     }
 
-    for (let copyIndex = 1; copyIndex < version.multiplier; copyIndex += 1) {
-      const rng = mulberry32(hashString(`${version.id}:${image.id}:${copyIndex}`))
-      const transform = createMaterializedTransform(version.recipe, rng, true)
-      samples.push(createResolvedSample(
-        image,
-        annotations,
-        buildAugmentedFilename(image.filename, version.name, copyIndex),
-        transform,
-        `${image.id}__${version.id}__${copyIndex}`,
-      ))
-    }
+    seeds.forEach((seed: SampleSeed) => {
+      for (let copyIndex = 1; copyIndex < version.multiplier; copyIndex += 1) {
+        const rng = mulberry32(hashString(`${version.id}:${seed.id}:${copyIndex}`))
+        const transform = createMaterializedTransform(recipe, rng, true)
+        samples.push(createResolvedSample(
+          {
+            ...seed,
+            id: `${seed.id}__${version.id}__${copyIndex}`,
+            filename: buildAugmentedFilename(seed.filename, version.name, copyIndex),
+          },
+          transform,
+        ))
+      }
+    })
 
     return samples
   })
@@ -390,11 +413,13 @@ function assertExportReadiness(split?: SplitType): void {
     : summary.images
 
   const missingAnnotations = items.filter((image) => hasIssue(image.issues, 'missing_annotations')).length
+  const statusUnlabeled = items.filter((image) => hasIssue(image.issues, 'status_unlabeled')).length
   const missingLabels = items.filter((image) => hasIssue(image.issues, 'missing_labels')).length
   const unassigned = items.filter((image) => hasIssue(image.issues, 'unassigned_split')).length
 
   const blockers: string[] = []
   if (missingAnnotations > 0) blockers.push(`${missingAnnotations} image(s) without annotations`)
+  if (statusUnlabeled > 0) blockers.push(`${statusUnlabeled} image(s) still marked as unlabeled`)
   if (missingLabels > 0) blockers.push(`${missingLabels} image(s) with missing class labels`)
   if (unassigned > 0) blockers.push(`${unassigned} image(s) with no dataset split`)
 
@@ -419,28 +444,165 @@ function isIdentityTransform(transform: MaterializedTransform): boolean {
     && !transform.autoOrientEnabled
 }
 
+function buildSampleSeeds(image: Image, annotations: Annotation[], recipe: AugmentationRecipe): SampleSeed[] {
+  if (!recipe.tiling_enabled) {
+    return [{
+      id: image.id,
+      filename: image.filename,
+      file_path: image.file_path,
+      width: image.width,
+      height: image.height,
+      split: image.split,
+      annotations,
+    }]
+  }
+
+  const seeds: SampleSeed[] = []
+  const grid = recipe.tiling_grid
+  for (let row = 0; row < grid; row += 1) {
+    const top = Math.round((row * image.height) / grid)
+    const bottom = Math.round(((row + 1) * image.height) / grid)
+    for (let col = 0; col < grid; col += 1) {
+      const left = Math.round((col * image.width) / grid)
+      const right = Math.round(((col + 1) * image.width) / grid)
+      const tile: TileRegion = {
+        left,
+        top,
+        width: right - left,
+        height: bottom - top,
+        row,
+        col,
+        grid,
+      }
+
+      seeds.push({
+        id: `${image.id}__tile_${row + 1}_${col + 1}`,
+        filename: buildTiledFilename(image.filename, row + 1, col + 1),
+        file_path: image.file_path,
+        width: tile.width,
+        height: tile.height,
+        split: image.split,
+        annotations: annotations
+          .map((annotation) => clipAnnotationToTile(annotation, tile, image.width, image.height))
+          .filter((annotation): annotation is Annotation => annotation != null),
+        tile,
+      })
+    }
+  }
+
+  return seeds
+}
+
 function createResolvedSample(
-  image: Image,
-  annotations: Annotation[],
-  filename: string,
+  seed: SampleSeed,
   transform: MaterializedTransform | null,
-  sampleId: string = image.id,
 ): ResolvedSample {
   const [width, height] = transform == null
-    ? [image.width, image.height]
-    : computeOutputDimensions(image.width, image.height, transform)
+    ? [seed.width, seed.height]
+    : computeOutputDimensions(seed.width, seed.height, transform)
 
   return {
-    id: sampleId,
-    filename,
-    file_path: image.file_path,
+    id: seed.id,
+    filename: seed.filename,
+    file_path: seed.file_path,
     width,
     height,
-    split: image.split,
+    split: seed.split,
     annotations: transform == null
-      ? annotations
-      : annotations.map((annotation) => transformAnnotation(annotation, transform, image.width, image.height)),
+      ? seed.annotations
+      : seed.annotations.map((annotation) => transformAnnotation(annotation, transform, seed.width, seed.height)),
+    tile: seed.tile,
     transform,
+  }
+}
+
+function clipAnnotationToTile(
+  annotation: Annotation,
+  tile: TileRegion,
+  imageWidth: number,
+  imageHeight: number,
+): Annotation | null {
+  const x0 = tile.left / imageWidth
+  const y0 = tile.top / imageHeight
+  const x1 = (tile.left + tile.width) / imageWidth
+  const y1 = (tile.top + tile.height) / imageHeight
+  const normX = (value: number) => clamp01((value - x0) / Math.max(x1 - x0, Number.EPSILON))
+  const normY = (value: number) => clamp01((value - y0) / Math.max(y1 - y0, Number.EPSILON))
+
+  if (annotation.geometry.type === 'bbox') {
+    const left = Math.max(annotation.geometry.x, x0)
+    const top = Math.max(annotation.geometry.y, y0)
+    const right = Math.min(annotation.geometry.x + annotation.geometry.width, x1)
+    const bottom = Math.min(annotation.geometry.y + annotation.geometry.height, y1)
+    if (right <= left || bottom <= top) return null
+    return {
+      ...annotation,
+      geometry: {
+        type: 'bbox',
+        x: normX(left),
+        y: normY(top),
+        width: clamp01(normX(right) - normX(left)),
+        height: clamp01(normY(bottom) - normY(top)),
+      },
+    }
+  }
+
+  if (annotation.geometry.type === 'polygon' || annotation.geometry.type === 'polyline') {
+    const bounds = getPointBounds(annotation.geometry.points)
+    if (bounds.maxX < x0 || bounds.minX > x1 || bounds.maxY < y0 || bounds.minY > y1) return null
+    const nextPoints = annotation.geometry.points.map(([x, y]) => [normX(clampNumber(x, x0, x1)), normY(clampNumber(y, y0, y1))] as [number, number])
+    if (annotation.geometry.type === 'polygon' && nextPoints.length < 3) return null
+    if (annotation.geometry.type === 'polyline' && nextPoints.length < 2) return null
+    return {
+      ...annotation,
+      geometry: {
+        ...annotation.geometry,
+        points: nextPoints,
+      },
+    }
+  }
+
+  if (annotation.geometry.type === 'keypoints') {
+    const keypoints = annotation.geometry.keypoints
+      .filter((keypoint) => keypoint.x >= x0 && keypoint.x <= x1 && keypoint.y >= y0 && keypoint.y <= y1)
+      .map((keypoint) => ({ ...keypoint, x: normX(keypoint.x), y: normY(keypoint.y) }))
+    if (keypoints.length === 0) return null
+    return {
+      ...annotation,
+      geometry: {
+        ...annotation.geometry,
+        keypoints,
+      },
+    }
+  }
+
+  if (annotation.geometry.type === 'mask') {
+    const contours = annotation.geometry.contours
+      .map((contour) => contour.map(([x, y]) => [normX(clampNumber(x, x0, x1)), normY(clampNumber(y, y0, y1))] as [number, number]))
+      .filter((contour) => contour.length >= 3)
+    if (contours.length === 0) return null
+    return {
+      ...annotation,
+      geometry: {
+        ...annotation.geometry,
+        contours,
+        mask_width: tile.width,
+        mask_height: tile.height,
+      },
+    }
+  }
+
+  return annotation
+}
+
+function getPointBounds(points: [number, number][]): { minX: number; minY: number; maxX: number; maxY: number } {
+  const xs = points.map(([x]) => x)
+  const ys = points.map(([, y]) => y)
+  return {
+    minX: Math.min(...xs),
+    minY: Math.min(...ys),
+    maxX: Math.max(...xs),
+    maxY: Math.max(...ys),
   }
 }
 
@@ -594,7 +756,9 @@ function assertFormatCompatibility(format: VersionExportRequest['format'], sampl
 }
 
 function hasPreprocessingEffect(recipe: AugmentationRecipe): boolean {
-  return recipe.auto_orient_enabled
+  return recipe.tiling_enabled
+    || recipe.auto_orient_enabled
+    || recipe.isolate_objects_enabled
     || recipe.resize_enabled
     || recipe.grayscale_enabled
     || recipe.adjust_contrast_enabled
@@ -950,21 +1114,30 @@ function createVersionOutputDir(baseOutputDir: string, version: DatasetVersion, 
 async function writeSampleImage(sample: ResolvedSample, destinationPath: string): Promise<void> {
   if (!existsSync(sample.file_path)) return
 
-  if (sample.transform == null) {
+  if (sample.transform == null && sample.tile == null) {
     copyFileSync(sample.file_path, destinationPath)
     return
   }
 
   let pipeline = sharp(sample.file_path)
 
-  if (sample.transform.autoOrientEnabled) {
+  if (sample.tile != null) {
+    pipeline = pipeline.extract({
+      left: sample.tile.left,
+      top: sample.tile.top,
+      width: sample.tile.width,
+      height: sample.tile.height,
+    })
+  }
+
+  if (sample.transform?.autoOrientEnabled) {
     pipeline = pipeline.rotate()
   }
-  if (sample.transform.horizontalFlip) pipeline = pipeline.flop()
-  if (sample.transform.verticalFlip) pipeline = pipeline.flip()
-  if (sample.transform.rotation !== 0) pipeline = pipeline.rotate(sample.transform.rotation)
+  if (sample.transform?.horizontalFlip) pipeline = pipeline.flop()
+  if (sample.transform?.verticalFlip) pipeline = pipeline.flip()
+  if (sample.transform != null && sample.transform.rotation !== 0) pipeline = pipeline.rotate(sample.transform.rotation)
 
-  if (sample.transform.resizeEnabled) {
+  if (sample.transform?.resizeEnabled) {
     const resizeBackground = sample.transform.resizeMode === 'white_edges'
       ? { r: 255, g: 255, b: 255, alpha: 1 }
       : { r: 0, g: 0, b: 0, alpha: 1 }
@@ -975,7 +1148,7 @@ async function writeSampleImage(sample: ResolvedSample, destinationPath: string)
     })
   }
 
-  if (Math.abs(sample.transform.shear) >= 0.5) {
+  if (sample.transform != null && Math.abs(sample.transform.shear) >= 0.5) {
     const shear = Math.tan((sample.transform.shear * Math.PI) / 180)
     pipeline = pipeline.affine([1, shear, 0, 1], {
       background: sample.transform.resizeMode === 'white_edges'
@@ -985,25 +1158,25 @@ async function writeSampleImage(sample: ResolvedSample, destinationPath: string)
     }).resize(sample.width, sample.height, { fit: 'fill' })
   }
 
-  if (sample.transform.adjustContrastMode === 'stretch') {
+  if (sample.transform?.adjustContrastMode === 'stretch') {
     pipeline = pipeline.normalise()
-  } else if (sample.transform.adjustContrastMode === 'equalize') {
+  } else if (sample.transform?.adjustContrastMode === 'equalize') {
     pipeline = pipeline.clahe({ width: 3, height: 3, maxSlope: 3 })
   }
 
-  if (sample.transform.grayscaleEnabled) pipeline = pipeline.grayscale()
+  if (sample.transform?.grayscaleEnabled) pipeline = pipeline.grayscale()
 
   const modulate: { brightness?: number; saturation?: number; hue?: number } = {}
-  if (Math.abs(sample.transform.brightnessDelta) >= 0.01) modulate.brightness = 1 + sample.transform.brightnessDelta
-  if (Math.abs(sample.transform.saturationDelta) >= 0.01) modulate.saturation = 1 + sample.transform.saturationDelta
-  if (Math.abs(sample.transform.hueDelta) >= 0.5) modulate.hue = normalizeHue(sample.transform.hueDelta)
+  if (sample.transform != null && Math.abs(sample.transform.brightnessDelta) >= 0.01) modulate.brightness = 1 + sample.transform.brightnessDelta
+  if (sample.transform != null && Math.abs(sample.transform.saturationDelta) >= 0.01) modulate.saturation = 1 + sample.transform.saturationDelta
+  if (sample.transform != null && Math.abs(sample.transform.hueDelta) >= 0.5) modulate.hue = normalizeHue(sample.transform.hueDelta)
   if (Object.keys(modulate).length > 0) pipeline = pipeline.modulate(modulate)
 
-  if (Math.abs(sample.transform.contrastDelta) >= 0.01) {
+  if (sample.transform != null && Math.abs(sample.transform.contrastDelta) >= 0.01) {
     const contrastScale = 1 + sample.transform.contrastDelta
     pipeline = pipeline.linear(contrastScale, 128 * (1 - contrastScale))
   }
-  if (sample.transform.blurSigma >= 0.1) {
+  if (sample.transform != null && sample.transform.blurSigma >= 0.1) {
     pipeline = pipeline.blur(sample.transform.blurSigma)
   }
 
@@ -1014,6 +1187,12 @@ function buildAugmentedFilename(filename: string, versionName: string, copyIndex
   const extension = extname(filename)
   const stem = basename(filename, extension)
   return `${stem}__${slugify(versionName)}_${copyIndex}${extension}`
+}
+
+function buildTiledFilename(filename: string, row: number, col: number): string {
+  const extension = extname(filename)
+  const stem = basename(filename, extension)
+  return `${stem}__tile_r${row}_c${col}${extension}`
 }
 
 function uniqueSplits(samples: ResolvedSample[]): SplitType[] {

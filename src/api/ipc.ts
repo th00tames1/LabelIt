@@ -69,6 +69,8 @@ export const imageApi = {
     api.image.updateStatus(id, status),
   updateSplit: (id: string, split: SplitType): Promise<void> =>
     api.image.updateSplit(id, split),
+  updateNull: (id: string, isNull: boolean): Promise<void> =>
+    api.image.updateNull(id, isNull),
   autoSplit: (ratios: SplitRatios): Promise<void> => api.image.autoSplit(ratios),
   showOpenDialog: (): Promise<string[] | null> => api.image.showOpenDialog(),
   showFolderDialog: (): Promise<string | null> => api.image.showFolderDialog(),
@@ -96,6 +98,7 @@ export const labelApi = {
   update: (id: string, dto: Partial<LabelClass>): Promise<LabelClass> =>
     api.label.update(id, dto),
   delete: (id: string): Promise<void> => api.label.delete(id),
+  getUsageCount: (id: string): Promise<number> => api.label.getUsageCount(id),
   reorder: (ids: string[]): Promise<void> => api.label.reorder(ids),
   listKeypointDefs: (labelClassId: string): Promise<KeypointDefinition[]> =>
     api.label.listKeypointDefs(labelClassId),

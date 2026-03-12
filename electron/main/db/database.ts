@@ -56,7 +56,7 @@ function runMigrations(database: Database.Database): void {
   )
 
   const migrationsDir = join(app.getAppPath(), 'electron', 'main', 'db', 'migrations')
-  const migrationFiles = ['001_initial.sql', '002_keypoints.sql']
+  const migrationFiles = ['001_initial.sql', '002_keypoints.sql', '003_image_flags.sql']
 
   for (const filename of migrationFiles) {
     if (applied.has(filename)) continue

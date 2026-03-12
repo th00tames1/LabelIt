@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useLabelStore } from '../../../store/labelStore'
 import { useAnnotationStore } from '../../../store/annotationStore'
 import { useUIStore } from '../../../store/uiStore'
+import { useImageStore } from '../../../store/imageStore'
+import { imageApi, labelApi } from '../../../api/ipc'
 import { useI18n } from '../../../i18n'
 
 const PRESET_COLORS = [
@@ -13,6 +15,9 @@ export default function LabelManager() {
   const { labels, createLabel, updateLabel, deleteLabel } = useLabelStore()
   const selectedAnnotationId = useAnnotationStore((s) => s.selectedId)
   const updateAnnotationLabel = useAnnotationStore((s) => s.updateLabel)
+  const loadForImage = useAnnotationStore((s) => s.loadForImage)
+  const activeImageId = useImageStore((s) => s.activeImageId)
+  const setImages = useImageStore((s) => s.setImages)
   const activeLabelClassId = useUIStore((s) => s.activeLabelClassId)
   const setActiveLabelClassId = useUIStore((s) => s.setActiveLabelClassId)
   const { t } = useI18n()
@@ -20,6 +25,7 @@ export default function LabelManager() {
   const [newColor, setNewColor] = useState(PRESET_COLORS[0])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [deleteCandidate, setDeleteCandidate] = useState<{ id: string; name: string; count: number } | null>(null)
 
   const handleCreate = async () => {
     if (!newName.trim()) return
@@ -51,12 +57,32 @@ export default function LabelManager() {
     }
   }
 
+  const handleDeleteLabel = async (labelId: string) => {
+    await deleteLabel(labelId)
+    const images = await imageApi.list()
+    setImages(images)
+    if (activeImageId) {
+      await loadForImage(activeImageId)
+    }
+  }
+
+  const handleRequestDeleteLabel = async (labelId: string, labelName: string) => {
+    const usageCount = await labelApi.getUsageCount(labelId)
+    if (usageCount > 0) {
+      setDeleteCandidate({ id: labelId, name: labelName, count: usageCount })
+      return
+    }
+    await handleDeleteLabel(labelId)
+  }
+
   return (
     <div style={{ height: '100%', overflow: 'auto' }}>
       {/* Add label form */}
       <div style={{
         padding: '10px',
         borderBottom: '1px solid var(--border)',
+        background: labels.length === 0 ? 'rgba(var(--accent-rgb),0.08)' : 'transparent',
+        boxShadow: labels.length === 0 ? 'inset 0 0 0 1px rgba(var(--accent-rgb),0.18)' : 'none',
       }}>
         <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
           <input
@@ -66,9 +92,23 @@ export default function LabelManager() {
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
             placeholder={t('labelManager.placeholder')}
             autoFocus={labels.length === 0}
-            style={{ flex: 1, fontSize: 12, padding: '5px 8px' }}
+            style={{
+              flex: 1,
+              fontSize: 12,
+              padding: '7px 10px',
+              borderRadius: 8,
+              border: labels.length === 0 ? '1px solid rgba(var(--accent-rgb),0.45)' : '1px solid var(--border)',
+              boxShadow: labels.length === 0 ? '0 0 0 3px rgba(var(--accent-rgb),0.14)' : 'none',
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-primary)',
+            }}
           />
         </div>
+        {labels.length === 0 && (
+          <div style={{ marginBottom: 8, fontSize: 11, color: 'var(--accent)', lineHeight: 1.5 }}>
+            {t('labelManager.emptyHint')}
+          </div>
+        )}
         {/* Color presets */}
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
           {PRESET_COLORS.map((c) => (
@@ -203,11 +243,11 @@ export default function LabelManager() {
             </div>
 
             {/* Delete */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                deleteLabel(label.id)
-              }}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleRequestDeleteLabel(label.id, label.name).catch(console.error)
+                  }}
               style={{ padding: '2px 5px', fontSize: 11, color: 'var(--text-muted)', opacity: 0.7 }}
               title={t('labelManager.delete')}
             >
@@ -216,6 +256,82 @@ export default function LabelManager() {
           </div>
         ))}
       </div>
+
+      {deleteCandidate && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setDeleteCandidate(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(420px, calc(100vw - 32px))',
+              padding: 20,
+              borderRadius: 16,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-secondary)',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {t('labelManager.deleteWarningTitle')}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>
+              {deleteCandidate.name}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>
+              {t('labelManager.deleteWarningMessage', {
+                count: deleteCandidate.count,
+                suffix: deleteCandidate.count === 1 ? '' : 's',
+              })}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+              <button
+                onClick={() => setDeleteCandidate(null)}
+                style={{
+                  minWidth: 86,
+                  height: 36,
+                  borderRadius: 10,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-tertiary)',
+                  color: 'var(--text-primary)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={() => {
+                  handleDeleteLabel(deleteCandidate.id).catch(console.error)
+                  setDeleteCandidate(null)
+                }}
+                style={{
+                  minWidth: 112,
+                  height: 36,
+                  borderRadius: 10,
+                  border: 'none',
+                  background: '#dc2626',
+                  color: 'white',
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {t('labelManager.deleteConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

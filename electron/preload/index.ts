@@ -34,6 +34,8 @@ const api = {
       ipcRenderer.invoke('image:updateStatus', id, status),
     updateSplit: (id: string, split: string) =>
       ipcRenderer.invoke('image:updateSplit', id, split),
+    updateNull: (id: string, isNull: boolean) =>
+      ipcRenderer.invoke('image:updateNull', id, isNull),
     autoSplit: (ratios: unknown) => ipcRenderer.invoke('image:autoSplit', ratios),
     showOpenDialog: () => ipcRenderer.invoke('image:showOpenDialog'),
     showFolderDialog: () => ipcRenderer.invoke('image:showFolderDialog'),
@@ -58,6 +60,7 @@ const api = {
     create: (dto: unknown) => ipcRenderer.invoke('label:create', dto),
     update: (id: string, dto: unknown) => ipcRenderer.invoke('label:update', id, dto),
     delete: (id: string) => ipcRenderer.invoke('label:delete', id),
+    getUsageCount: (id: string) => ipcRenderer.invoke('label:getUsageCount', id),
     reorder: (ids: string[]) => ipcRenderer.invoke('label:reorder', ids),
     listKeypointDefs: (labelClassId: string) =>
       ipcRenderer.invoke('label:listKeypointDefs', labelClassId),

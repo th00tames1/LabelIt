@@ -11,9 +11,10 @@ import labelItDarkLogo from '../../assets/Labelit_Dark.svg'
 
 interface Props {
   openCreateModalSignal?: number
+  onCreateModalSignalHandled?: () => void
 }
 
-export default function HomePage({ openCreateModalSignal = 0 }: Props) {
+export default function HomePage({ openCreateModalSignal = 0, onCreateModalSignalHandled }: Props) {
   const [showNewProject, setShowNewProject] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
@@ -61,8 +62,9 @@ export default function HomePage({ openCreateModalSignal = 0 }: Props) {
     if (openCreateModalSignal > 0) {
       setShowNewProject(true)
       setContextMenu(null)
+      onCreateModalSignalHandled?.()
     }
-  }, [openCreateModalSignal])
+  }, [openCreateModalSignal, onCreateModalSignalHandled])
 
   useEffect(() => {
     if (!contextMenu) return
@@ -402,7 +404,7 @@ export default function HomePage({ openCreateModalSignal = 0 }: Props) {
         {error && <p className="error-text">{error}</p>}
       </div>
 
-      <div className="home-footer">Copyright © Heechan Jeong</div>
+      <div className="home-footer">Copyright © 2026 Heechan Jeong</div>
 
       {contextMenu && (
         <div

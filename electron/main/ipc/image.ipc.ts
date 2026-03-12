@@ -1,5 +1,5 @@
 import { ipcMain, dialog } from 'electron'
-import { listImages, getImage, updateImageStatus, updateImageSplit, autoSplit } from '../db/repositories/image.repo'
+import { listImages, getImage, updateImageStatus, updateImageSplit, updateImageNull, autoSplit } from '../db/repositories/image.repo'
 import { importImages, importFolder } from '../services/import.service'
 import { getThumbnailDir, getCurrentProjectDir } from './project.ipc'
 import type { ImageFilter, ImageStatus, SplitType, SplitRatios } from '../db/schema'
@@ -29,6 +29,10 @@ export function registerImageIpc(): void {
 
   ipcMain.handle('image:updateSplit', async (_event, id: string, split: SplitType) => {
     updateImageSplit(id, split)
+  })
+
+  ipcMain.handle('image:updateNull', async (_event, id: string, isNull: boolean) => {
+    updateImageNull(id, isNull)
   })
 
   ipcMain.handle('image:autoSplit', async (_event, ratios: SplitRatios) => {

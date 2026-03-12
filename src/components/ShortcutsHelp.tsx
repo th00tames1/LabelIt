@@ -23,8 +23,9 @@ const GROUPS = {
         ['V', 'Select'],
         ['W', 'Bounding box'],
         ['E', 'Polygon'],
-        ['K', 'Keypoint'],
         ['S', 'Smart Polygon'],
+        ['K', 'Keypoint'],
+        ['-', 'Null Tool'],
       ],
     },
     {
@@ -87,8 +88,9 @@ const GROUPS = {
         ['V', '선택'],
         ['W', '바운딩 박스'],
         ['E', '폴리곤'],
-        ['K', '키포인트'],
         ['S', '스마트 폴리곤'],
+        ['K', '키포인트'],
+        ['-', 'Null Tool'],
       ],
     },
     {

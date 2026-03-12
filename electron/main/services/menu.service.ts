@@ -69,8 +69,6 @@ export function refreshApplicationMenu(): void {
         { label: 'Open Image Files...', click: () => dispatchMenuAction('open-image-files') },
         { type: 'separator' },
         { role: 'close' },
-        { type: 'separator' },
-        { role: 'quit', label: 'Quit' },
       ],
     },
     {

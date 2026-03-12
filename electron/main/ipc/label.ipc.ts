@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 import {
-  listLabels, createLabel, updateLabel, deleteLabel, reorderLabels,
+  listLabels, createLabel, updateLabel, deleteLabel, reorderLabels, getLabelUsageCount,
   listKeypointDefs, createKeypointDef, deleteKeypointDef,
   setSkeletonEdge, removeSkeletonEdge, listSkeletonEdges,
 } from '../db/repositories/label.repo'
@@ -14,6 +14,8 @@ export function registerLabelIpc(): void {
   ipcMain.handle('label:update', async (_event, id: string, dto: UpdateLabelDto) => updateLabel(id, dto))
 
   ipcMain.handle('label:delete', async (_event, id: string) => deleteLabel(id))
+
+  ipcMain.handle('label:getUsageCount', async (_event, id: string) => getLabelUsageCount(id))
 
   ipcMain.handle('label:reorder', async (_event, ids: string[]) => reorderLabels(ids))
 

@@ -2,7 +2,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../database'
 import type { Image, ImageFilter, ImageStatus, SplitType, SplitRatios } from '../schema'
 
-interface ImageRow extends Omit<Image, 'status' | 'split'> {
+interface ImageRow extends Omit<Image, 'status' | 'split' | 'is_null'> {
+  is_null: number
   status: string
   split: string
 }
@@ -10,6 +11,7 @@ interface ImageRow extends Omit<Image, 'status' | 'split'> {
 function rowToImage(row: ImageRow): Image {
   return {
     ...row,
+    is_null: Boolean(row.is_null),
     status: row.status as ImageStatus,
     split: row.split as SplitType,
   }
@@ -37,7 +39,9 @@ export function listImages(filter?: ImageFilter): Image[] {
 }
 
 export function getImage(id: string): Image | null {
-  const row = getDatabase().prepare('SELECT * FROM images WHERE id = ?').get(id) as ImageRow | undefined
+  const row = getDatabase().prepare(`SELECT i.*,
+    COALESCE((SELECT COUNT(*) FROM annotations a WHERE a.image_id = i.id), 0) AS annotation_count
+    FROM images i WHERE i.id = ?`).get(id) as ImageRow | undefined
   return row ? rowToImage(row) : null
 }
 
@@ -65,6 +69,11 @@ export function updateImageStatus(id: string, status: ImageStatus): void {
   getDatabase().prepare('UPDATE images SET status = ? WHERE id = ?').run(status, id)
 }
 
+export function updateImageNull(id: string, isNull: boolean): void {
+  getDatabase().prepare('UPDATE images SET is_null = ? WHERE id = ?').run(isNull ? 1 : 0, id)
+  syncImageStatus(id)
+}
+
 export function updateImageSplit(id: string, split: SplitType): void {
   getDatabase().prepare('UPDATE images SET split = ? WHERE id = ?').run(split, id)
 }
@@ -76,8 +85,50 @@ export function updateThumbnailPath(id: string, thumbnailPath: string): void {
 /** Mark image as in_progress if it was unlabeled (called after first annotation) */
 export function ensureInProgress(id: string): void {
   getDatabase()
-    .prepare(`UPDATE images SET status = 'in_progress' WHERE id = ? AND status = 'unlabeled'`)
+    .prepare(`UPDATE images SET status = 'in_progress' WHERE id = ? AND status = 'unlabeled' AND is_null = 0`)
     .run(id)
+}
+
+export function syncImageStatus(id: string): void {
+  const db = getDatabase()
+  const image = db.prepare('SELECT is_null FROM images WHERE id = ?').get(id) as { is_null: number } | undefined
+  if (!image) return
+
+  if (image.is_null === 1) {
+    updateImageStatus(id, 'labeled')
+    return
+  }
+
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN label_class_id IS NULL THEN 1 ELSE 0 END) as unlabeled_count,
+      SUM(CASE WHEN source = 'yolo_auto' THEN 1 ELSE 0 END) as auto_count
+    FROM annotations
+    WHERE image_id = ?
+  `).get(id) as { total: number; unlabeled_count: number | null; auto_count: number | null }
+
+  if (stats.total === 0) {
+    updateImageStatus(id, 'unlabeled')
+    return
+  }
+
+  if ((stats.unlabeled_count ?? 0) > 0) {
+    updateImageStatus(id, 'unlabeled')
+    return
+  }
+
+  if ((stats.auto_count ?? 0) > 0) {
+    updateImageStatus(id, 'in_progress')
+    return
+  }
+
+  updateImageStatus(id, 'labeled')
+}
+
+export function syncAllImageStatuses(): void {
+  const ids = getDatabase().prepare('SELECT id FROM images').all() as { id: string }[]
+  ids.forEach(({ id }) => syncImageStatus(id))
 }
 
 export function autoSplit(ratios: SplitRatios): void {

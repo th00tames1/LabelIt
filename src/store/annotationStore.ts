@@ -65,12 +65,6 @@ export const useAnnotationStore = create<AnnotationState>()(
         throw new Error('Create or select a label before drawing annotations.')
       }
 
-      // Auto-advance image status: any labeled annotation marks the image as labeled
-      const isFirst = get().annotations.length === 0
-      if (isFirst) {
-        imageApi.updateStatus(imageId, 'labeled').catch(() => {/* best-effort */})
-      }
-
       // Optimistic — add placeholder
       const tempId = `temp-${Date.now()}`
       const now = Date.now()
@@ -131,6 +125,9 @@ export const useAnnotationStore = create<AnnotationState>()(
         const idx = s.annotations.findIndex((a) => a.id === id)
         if (idx >= 0) s.annotations[idx] = updated
       })
+      imageApi.get(updated.image_id).then((img) => {
+        if (img) useImageStore.getState().updateImageInList(img)
+      }).catch(() => {/* best-effort */})
     },
 
     deleteAnnotation: async (id) => {
@@ -148,14 +145,8 @@ export const useAnnotationStore = create<AnnotationState>()(
       await annotationApi.delete(id)
 
       // Refresh image in sidebar to update annotation_count badge
-      imageApi.get(annotation.image_id).then(async (img) => {
+      imageApi.get(annotation.image_id).then((img) => {
         if (!img) return
-        if (img.annotation_count === 0 && img.status !== 'approved') {
-          await imageApi.updateStatus(annotation.image_id, 'unlabeled').catch(() => {/* best-effort */})
-          const refreshed = await imageApi.get(annotation.image_id)
-          if (refreshed) useImageStore.getState().updateImageInList(refreshed)
-          return
-        }
         useImageStore.getState().updateImageInList(img)
       }).catch(() => {/* best-effort */})
     },

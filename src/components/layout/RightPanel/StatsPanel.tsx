@@ -26,7 +26,6 @@ export default function StatsPanel() {
 
   const statusColor: Record<string, string> = {
     unlabeled: 'var(--status-unlabeled)',
-    in_progress: 'var(--status-labeled)',
     labeled: 'var(--status-labeled)',
     approved: 'var(--status-approved)',
   }
@@ -36,6 +35,8 @@ export default function StatsPanel() {
     test: 'var(--split-test)',
     unassigned: 'var(--split-unassigned)',
   }
+  const statusOrder: ImageStatus[] = ['unlabeled', 'labeled', 'approved']
+  const splitOrder: SplitType[] = ['train', 'val', 'test', 'unassigned']
 
   const row = (label: string, value: number | string, color?: string) => (
     <div key={label} style={{
@@ -72,6 +73,22 @@ export default function StatsPanel() {
   if (!stats) return null
 
   const maxClassCount = Math.max(...stats.by_class.map((c) => c.annotation_count), 1)
+  const mergedStatus = stats.by_status.reduce<Array<{ status: 'unlabeled' | 'labeled' | 'approved'; count: number }>>((acc, item) => {
+    const normalized = item.status === 'in_progress' ? 'labeled' : item.status
+    if (normalized !== 'unlabeled' && normalized !== 'labeled' && normalized !== 'approved') return acc
+    const existing = acc.find((entry) => entry.status === normalized)
+    if (existing) existing.count += item.count
+    else acc.push({ status: normalized, count: item.count })
+    return acc
+  }, [])
+  const orderedStatus = statusOrder.map((status) => ({
+    status,
+    count: mergedStatus.find((entry) => entry.status === status)?.count ?? 0,
+  }))
+  const orderedSplit = splitOrder.map((split) => ({
+    split,
+    count: stats.by_split.find((entry) => entry.split === split)?.count ?? 0,
+  }))
 
   return (
     <div style={{ padding: '12px 14px', overflowY: 'auto', height: '100%', boxSizing: 'border-box' }}>
@@ -111,15 +128,15 @@ export default function StatsPanel() {
 
       {/* By Status */}
       {sectionLabel(t('stats.byStatus'))}
-      {stats.by_status.length === 0
+      {orderedStatus.length === 0
         ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('stats.noData')}</div>
-        : stats.by_status.map((s) => row(statusLabel(s.status as ImageStatus), s.count, statusColor[s.status]))}
+        : orderedStatus.map((s) => row(statusLabel(s.status), s.count, statusColor[s.status]))}
 
       {/* By Split */}
       {sectionLabel(t('stats.bySplit'))}
-      {stats.by_split.length === 0
+      {orderedSplit.length === 0
         ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('stats.noData')}</div>
-        : stats.by_split.map((s) => row(splitLabel(s.split as SplitType), s.count, splitColor[s.split]))}
+        : orderedSplit.map((s) => row(splitLabel(s.split), s.count, splitColor[s.split]))}
 
       {/* By Class */}
       {sectionLabel(t('stats.byClass'))}

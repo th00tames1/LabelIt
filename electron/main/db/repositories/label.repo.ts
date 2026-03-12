@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../database'
 import type { LabelClass, KeypointDefinition, KeypointSkeletonEdge, CreateLabelDto, UpdateLabelDto } from '../schema'
+import { syncAllImageStatuses } from './image.repo'
 
 export function listLabels(): LabelClass[] {
   return getDatabase()
@@ -43,6 +44,14 @@ export function updateLabel(id: string, dto: UpdateLabelDto): LabelClass {
 
 export function deleteLabel(id: string): void {
   getDatabase().prepare('DELETE FROM label_classes WHERE id = ?').run(id)
+  syncAllImageStatuses()
+}
+
+export function getLabelUsageCount(id: string): number {
+  const row = getDatabase()
+    .prepare('SELECT COUNT(*) as c FROM annotations WHERE label_class_id = ?')
+    .get(id) as { c: number }
+  return row.c
 }
 
 export function reorderLabels(ids: string[]): void {

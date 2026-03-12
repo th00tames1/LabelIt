@@ -55,3 +55,16 @@ async def predict(request: SAMPredictRequest):
         mode=mode,
         runtime=sam_service.get_runtime_info(),
     )
+
+
+@router.post("/preload")
+async def preload():
+    try:
+        sam_service.preload()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SAM preload error: {e}")
+
+    return {
+        "status": "ok",
+        "runtime": sam_service.get_runtime_info(),
+    }

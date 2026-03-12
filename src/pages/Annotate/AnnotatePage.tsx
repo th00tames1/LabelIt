@@ -75,7 +75,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
     if (labels.length === 0) {
       setActiveLabelClassId(null)
       setRightPanelTab('labels')
-      if (activeTool !== 'select') setActiveTool('select')
+      if (activeTool !== 'select' && activeTool !== 'null') setActiveTool('select')
       return
     }
 
@@ -84,6 +84,20 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
       setActiveLabelClassId(labels[0].id)
     }
   }, [labels, activeLabelClassId, activeTool, setActiveLabelClassId, setActiveTool, setRightPanelTab])
+
+  useEffect(() => {
+    const activeImage = images.find((image) => image.id === activeImageId) ?? null
+    if (!activeImage) return
+
+    if (activeImage.is_null) {
+      if (activeTool !== 'null') setActiveTool('null')
+      return
+    }
+
+    if (activeTool === 'null') {
+      setActiveTool('select')
+    }
+  }, [images, activeImageId, activeTool, setActiveTool])
 
   // Load annotations when active image changes
   const handleSelectImage = useCallback(async (imageId: string) => {
@@ -199,6 +213,8 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
 
       // ─── Tool shortcuts (no modifier) ──────────────────────────────────────
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const currentImage = images.find((img) => img.id === activeImageId) ?? null
+
         // Space: mark current image as "labeled" and jump to next unlabeled
         if (e.key === ' ') {
           e.preventDefault()
@@ -236,10 +252,14 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
         }
 
         const toolMap: Record<string, ToolType> = {
-          v: 'select', w: 'bbox', e: 'polygon', k: 'keypoint', s: 'sam',
+          v: 'select', w: 'bbox', e: 'polygon', s: 'sam', k: 'keypoint',
         }
         const requestedTool = toolMap[e.key.toLowerCase()]
         if (requestedTool) {
+          if (currentImage?.is_null && requestedTool !== 'select') {
+            e.preventDefault()
+            return
+          }
           if (requestedTool !== 'select' && labels.length === 0) {
             e.preventDefault()
             showCreateLabelNotice()
@@ -336,17 +356,6 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
                 </div>
                 <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.6 }}>
                   {t('annotate.onboardingBody')}
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button
-                    onClick={() => setRightPanelTab('labels')}
-                    style={{
-                      padding: '7px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                      background: 'var(--accent)', color: 'white', fontSize: 12, fontWeight: 600,
-                    }}
-                  >
-                    {t('annotate.openLabels')}
-                  </button>
                 </div>
               </div>
             </div>

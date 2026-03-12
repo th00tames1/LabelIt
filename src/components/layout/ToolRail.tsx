@@ -1,5 +1,8 @@
 import { useLabelStore } from '../../store/labelStore'
 import { useUIStore } from '../../store/uiStore'
+import { useImageStore } from '../../store/imageStore'
+import { useAnnotationStore } from '../../store/annotationStore'
+import { annotationApi, imageApi } from '../../api/ipc'
 import { useI18n } from '../../i18n'
 import type { ToolType } from '../../types'
 
@@ -44,6 +47,15 @@ function Icon({ tool, active }: { tool: ToolType; active: boolean }) {
     )
   }
 
+  if (tool === 'null') {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <circle cx="9" cy="9" r="6" stroke={stroke} strokeWidth="1.6" />
+        <path d="M4.3 13.7L13.7 4.3" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
       <path d="M9 2.4L10.2 6.1L13.9 7.3L10.2 8.5L9 12.2L7.8 8.5L4.1 7.3L7.8 6.1L9 2.4Z" fill={stroke} />
@@ -58,15 +70,47 @@ export default function ToolRail() {
   const setActiveTool = useUIStore((s) => s.setActiveTool)
   const sidecarOnline = useUIStore((s) => s.sidecarOnline)
   const labels = useLabelStore((s) => s.labels)
+  const images = useImageStore((s) => s.images)
+  const activeImageId = useImageStore((s) => s.activeImageId)
+  const updateImageInList = useImageStore((s) => s.updateImageInList)
+  const annotations = useAnnotationStore((s) => s.annotations)
+  const setAnnotations = useAnnotationStore((s) => s.setAnnotations)
+  const setSelectedId = useAnnotationStore((s) => s.setSelectedId)
   const { t } = useI18n()
+
+  const activeImage = images.find((image) => image.id === activeImageId) ?? null
 
   const items: { tool: ToolType; label: string; shortcut: string }[] = [
     { tool: 'select', label: t('topbar.selectTool'), shortcut: 'V' },
     { tool: 'bbox', label: t('topbar.bboxTool'), shortcut: 'W' },
     { tool: 'polygon', label: t('topbar.polygonTool'), shortcut: 'E' },
-    { tool: 'keypoint', label: t('topbar.keypointTool'), shortcut: 'K' },
     { tool: 'sam', label: t('topbar.smartPolygonTool'), shortcut: 'S' },
+    { tool: 'keypoint', label: t('topbar.keypointTool'), shortcut: 'K' },
+    { tool: 'null', label: t('topbar.nullTool'), shortcut: '-' },
   ]
+
+  const handleNullToggle = async () => {
+    if (!activeImage) return
+
+    if (activeImage.is_null) {
+      await imageApi.updateNull(activeImage.id, false)
+      const refreshed = await imageApi.get(activeImage.id)
+      if (refreshed) updateImageInList(refreshed)
+      setActiveTool('select')
+      return
+    }
+
+    if (annotations.length > 0) {
+      await annotationApi.bulkDelete(annotations.map((annotation) => annotation.id))
+      setAnnotations([])
+      setSelectedId(null)
+    }
+
+    await imageApi.updateNull(activeImage.id, true)
+    const refreshed = await imageApi.get(activeImage.id)
+    if (refreshed) updateImageInList(refreshed)
+    setActiveTool('null')
+  }
 
   return (
     <div
@@ -89,14 +133,21 @@ export default function ToolRail() {
       title={t('topbar.toolRail')}
     >
       {items.map((item) => {
-        const active = activeTool === item.tool
-        const disabled = (item.tool !== 'select' && labels.length === 0)
+        const active = item.tool === 'null' ? Boolean(activeImage?.is_null) : activeTool === item.tool
+        const disabled = (item.tool !== 'select' && item.tool !== 'null' && labels.length === 0)
           || (item.tool === 'sam' && !sidecarOnline)
+          || (Boolean(activeImage?.is_null) && item.tool !== 'select' && item.tool !== 'null')
 
         return (
           <button
             key={item.tool}
-            onClick={() => setActiveTool(item.tool)}
+            onClick={() => {
+              if (item.tool === 'null') {
+                handleNullToggle().catch(console.error)
+                return
+              }
+              setActiveTool(item.tool)
+            }}
             disabled={disabled}
             title={`${item.label} (${item.shortcut})`}
             style={{

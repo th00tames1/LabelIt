@@ -5,7 +5,7 @@ export type ImageStatus = 'unlabeled' | 'in_progress' | 'labeled' | 'approved'
 export type SplitType = 'train' | 'val' | 'test' | 'unassigned'
 export type AnnotationType = 'bbox' | 'polygon' | 'polyline' | 'keypoints' | 'mask'
 export type AnnotationSource = 'manual' | 'sam' | 'yolo_auto'
-export type ToolType = 'select' | 'bbox' | 'polygon' | 'keypoint' | 'sam'
+export type ToolType = 'select' | 'bbox' | 'polygon' | 'keypoint' | 'sam' | 'null'
 export type RightPanelTab = 'annotations' | 'labels' | 'stats'
 export type AppLanguage = 'en' | 'ko'
 export type AIDeviceMode = 'auto' | 'gpu' | 'cpu'
@@ -70,6 +70,7 @@ export interface LabelClass {
 export interface Image {
   id: string; filename: string; file_path: string; thumbnail_path: string | null
   width: number; height: number; file_size: number
+  is_null: boolean
   status: ImageStatus; split: SplitType
   imported_at: number; sort_order: number
   annotation_count: number   // computed: number of annotations on this image
@@ -117,6 +118,7 @@ export interface AppSettings {
 
 export interface AugmentationRecipe {
   tiling_enabled: boolean
+  tiling_grid: number
   auto_orient_enabled: boolean
   isolate_objects_enabled: boolean
   resize_enabled: boolean
@@ -164,7 +166,7 @@ export interface DatasetVersionInput {
 }
 
 export interface FinishImageIssue {
-  code: 'missing_annotations' | 'missing_labels' | 'unassigned_split'
+  code: 'missing_annotations' | 'missing_labels' | 'unassigned_split' | 'status_unlabeled'
   label: string
 }
 

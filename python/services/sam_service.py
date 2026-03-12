@@ -74,6 +74,10 @@ class SAMService:
         except Exception as e:
             raise RuntimeError(f"Failed to load interactive SAM model: {e}") from e
 
+    def preload(self):
+        """Warm the interactive model without running inference."""
+        self._load_point_model()
+
     # ── Public API ───────────────────────────────────────────────────────────
 
     def predict(
@@ -96,11 +100,11 @@ class SAMService:
         image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
         img_w, img_h = image.size
         img_array = np.array(image)
-        return self._predict_points(img_array, img_w, img_h, points, point_labels, box)
+        return self._predict_points(img_array, img_w, img_h, points, point_labels, box, multimask)
 
     # ── Point / Box Prompt Mode ──────────────────────────────────────────────
 
-    def _predict_points(self, img_array, img_w, img_h, points, point_labels, box):
+    def _predict_points(self, img_array, img_w, img_h, points, point_labels, box, multimask):
         self._load_point_model()
         runtime = self.get_runtime_info()
         model = self._model
@@ -128,11 +132,11 @@ class SAMService:
         except Exception as e:
             raise RuntimeError(f"SAM 3 point inference failed: {e}") from e
 
-        return self._parse_results(results, img_w, img_h)
+        return self._parse_results(results, img_w, img_h, multimask)
 
     # ── Result Parsing ────────────────────────────────────────────────────────
 
-    def _parse_results(self, results, img_w, img_h):
+    def _parse_results(self, results, img_w, img_h, multimask):
         """
         Convert Ultralytics Result objects to normalized contours.
         Prefer binary mask -> OpenCV contour extraction for stable point ordering,
@@ -142,11 +146,18 @@ class SAMService:
             return [], 0.0
 
         result = results[0]
-        contours = []
+        mask_candidates = []
+
+        scores = []
+        try:
+            if hasattr(result, "boxes") and result.boxes is not None and len(result.boxes.conf) > 0:
+                scores = [float(conf.item()) for conf in result.boxes.conf]
+        except Exception:
+            scores = []
 
         # Path A: masks.data (binary tensors -> compute contours via OpenCV)
         if hasattr(result.masks, "data") and result.masks.data is not None:
-            for mask_tensor in result.masks.data:
+            for index, mask_tensor in enumerate(result.masks.data):
                 mask_np = mask_tensor.cpu().numpy()
                 if mask_np.shape != (img_h, img_w):
                     mask_img = PILImage.fromarray((mask_np * 255).astype(np.uint8))
@@ -155,28 +166,49 @@ class SAMService:
                 else:
                     mask_np = mask_np > 0.5
                 polys = mask_to_contours(mask_np.astype(bool), img_w, img_h)
-                contours.extend(polys)
+                if polys:
+                    mask_candidates.append({
+                        "contours": sorted(polys, key=self._contour_area, reverse=True),
+                        "score": scores[index] if index < len(scores) else 0.0,
+                    })
 
         # Path B: masks.xy (pre-computed polygon contours)
-        if not contours and hasattr(result.masks, "xy") and result.masks.xy is not None:
-            for mask_xy in result.masks.xy:
+        if not mask_candidates and hasattr(result.masks, "xy") and result.masks.xy is not None:
+            for index, mask_xy in enumerate(result.masks.xy):
                 if len(mask_xy) < 3:
                     continue
                 norm_contour = [
                     [float(pt[0]) / img_w, float(pt[1]) / img_h]
                     for pt in mask_xy
                 ]
-                contours.append(norm_contour)
+                mask_candidates.append({
+                    "contours": [norm_contour],
+                    "score": scores[index] if index < len(scores) else 0.0,
+                })
 
-        # Confidence score
-        score = 0.9
-        try:
-            if hasattr(result, "boxes") and result.boxes is not None and len(result.boxes.conf) > 0:
-                score = float(result.boxes.conf.max().item())
-        except Exception:
-            pass
+        if not mask_candidates:
+            return [], 0.0
 
-        return contours, score
+        if multimask:
+            merged_contours = []
+            best_score = 0.0
+            for candidate in mask_candidates:
+                merged_contours.extend(candidate["contours"])
+                best_score = max(best_score, candidate["score"])
+            return merged_contours, best_score
+
+        best_candidate = max(mask_candidates, key=lambda candidate: candidate["score"])
+        best_score = best_candidate["score"] if best_candidate["score"] > 0 else 0.9
+        return best_candidate["contours"], best_score
+
+    def _contour_area(self, contour):
+        if len(contour) < 3:
+            return 0.0
+        total = 0.0
+        for index, (x1, y1) in enumerate(contour):
+            x2, y2 = contour[(index + 1) % len(contour)]
+            total += x1 * y2 - x2 * y1
+        return abs(total) / 2.0
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import AutoSplitDialog from '../../components/AutoSplitDialog'
 import { exportApi, finishApi, imageApi } from '../../api/ipc'
 import { useProjectStore } from '../../store/projectStore'
 import { useI18n } from '../../i18n'
@@ -24,15 +23,17 @@ interface Props {
 }
 
 type FinishTab = 'overview' | 'dataset' | 'versions' | 'export'
-type StatusFilter = 'all' | 'unlabeled' | 'in_progress' | 'labeled' | 'approved'
+type StatusFilter = 'all' | 'unlabeled' | 'labeled' | 'approved'
 type DatasetIssueFilter = 'all' | 'ready' | FinishImageIssue['code']
+type TechniqueKey = 'tiling' | 'auto_orient' | 'resize' | 'grayscale' | 'adjust_contrast' | 'flip' | 'rotate' | 'shear' | 'brightness' | 'contrast' | 'saturation' | 'hue' | 'blur'
 
-const STATUS_OPTIONS = ['unlabeled', 'in_progress', 'labeled', 'approved'] as const
+const STATUS_OPTIONS = ['unlabeled', 'labeled', 'approved'] as const
 const SPLIT_OPTIONS = ['train', 'val', 'test', 'unassigned'] as const
-const VISIBLE_ISSUES: FinishImageIssue['code'][] = ['missing_annotations', 'missing_labels', 'unassigned_split']
+const VISIBLE_ISSUES: FinishImageIssue['code'][] = ['missing_annotations', 'missing_labels', 'unassigned_split', 'status_unlabeled']
 
 const DEFAULT_RECIPE: AugmentationRecipe = {
   tiling_enabled: false,
+  tiling_grid: 2,
   auto_orient_enabled: false,
   isolate_objects_enabled: false,
   resize_enabled: false,
@@ -64,7 +65,9 @@ function cloneRecipe(recipe: AugmentationRecipe): AugmentationRecipe {
 }
 
 function hasPreprocessingEffect(recipe: AugmentationRecipe): boolean {
-  return recipe.auto_orient_enabled
+  return recipe.tiling_enabled
+    || recipe.auto_orient_enabled
+    || recipe.isolate_objects_enabled
     || recipe.resize_enabled
     || recipe.grayscale_enabled
     || recipe.adjust_contrast_enabled
@@ -89,7 +92,11 @@ function hasAnyRecipeEffect(recipe: AugmentationRecipe): boolean {
 
 function toMagnitudeLabel(value: number, digits = 2, suffix = ''): string {
   const magnitude = Math.abs(value).toFixed(digits)
-  return `+/- ${magnitude}${suffix}`
+  return `± ${magnitude}${suffix}`
+}
+
+function toPercentLabel(value: number, digits = 0): string {
+  return `± ${(Math.abs(value) * 100).toFixed(digits)}%`
 }
 
 export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
@@ -102,8 +109,8 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
   const [exampleImage, setExampleImage] = useState<Image | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showAutoSplit, setShowAutoSplit] = useState(false)
   const [expandedBlocker, setExpandedBlocker] = useState<FinishImageIssue['code'] | null>(null)
+  const [activeTechnique, setActiveTechnique] = useState<TechniqueKey | null>(null)
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -130,9 +137,8 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
     ? {
         title: '마무리 워크스페이스',
         subtitle: '라벨링 상태를 점검하고, 전처리/증강 버전을 만든 뒤 여러 형식으로 내보냅니다.',
-        back: '라벨링으로 돌아가기',
+        back: '← 라벨링',
         refresh: '새로고침',
-        autoSplit: '자동 분할',
         loading: '마무리 워크스페이스를 불러오는 중입니다...',
         failed: '마무리 워크스페이스를 불러오지 못했습니다.',
         tabs: {
@@ -145,7 +151,6 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
           total: '전체 이미지',
           ready: '내보내기 가능',
           unlabeled: '미라벨',
-          inProgress: '작업 중',
           unassigned: '분할 미지정',
           missingLabels: '클래스 미지정',
         },
@@ -165,6 +170,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         issues: {
           missing_annotations: '어노테이션 없음',
           missing_labels: '클래스 미지정',
+          status_unlabeled: '상태가 미라벨로 남아 있음',
           unassigned_split: '분할 미지정',
         },
         annotate: '열기',
@@ -205,17 +211,16 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         resizeStretch: '늘이기',
         contrastStretch: '대비 스트레칭',
         contrastEqualize: '히스토그램 평활화',
-        rotate90: '시계 방향 90도',
-        rotate270: '시계 방향 270도',
+        rotate90: '시계 방향 90º',
+        rotate270: '시계 방향 270º',
         unsupportedNote: 'Tiling과 Isolate Objects는 현재 미리보기 중심으로 먼저 반영되어 있습니다.',
         exportImagesForced: '증강 버전은 생성 이미지가 필요하므로 이미지 포함 옵션이 자동으로 켜집니다.',
       }
     : {
         title: 'Finish Workspace',
         subtitle: 'Review dataset health, build preprocessing and augmentation versions, then export multiple variants.',
-        back: 'Back To Annotate',
+        back: '← Annotate',
         refresh: 'Refresh',
-        autoSplit: 'Auto Split',
         loading: 'Loading finish workspace...',
         failed: 'Failed to load the finish workspace.',
         tabs: {
@@ -228,7 +233,6 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
           total: 'Total Images',
           ready: 'Export Ready',
           unlabeled: 'Unlabeled',
-          inProgress: 'In Progress',
           unassigned: 'Unassigned Split',
           missingLabels: 'Missing Classes',
         },
@@ -248,6 +252,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         issues: {
           missing_annotations: 'No annotations',
           missing_labels: 'Missing class labels',
+          status_unlabeled: 'Still marked as unlabeled',
           unassigned_split: 'Split not assigned',
         },
         annotate: 'Open',
@@ -288,8 +293,8 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         resizeStretch: 'Stretch',
         contrastStretch: 'Contrast Stretching',
         contrastEqualize: 'Histogram Equalization',
-        rotate90: 'Clockwise 90deg',
-        rotate270: 'Clockwise 270deg',
+        rotate90: 'Clockwise 90º',
+        rotate270: 'Clockwise 270º',
         unsupportedNote: 'Tiling and Isolate Objects are staged in the UI first and currently preview-focused.',
         exportImagesForced: 'Augmented versions need materialized generated images, so this stays enabled automatically.',
       }
@@ -334,7 +339,8 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
     const keyword = search.trim().toLowerCase()
     return images.filter((image) => {
       const matchesSearch = keyword.length === 0 || image.filename.toLowerCase().includes(keyword)
-      const matchesStatus = statusFilter === 'all' || image.status === statusFilter
+      const displayStatus = image.status === 'in_progress' ? 'labeled' : image.status
+      const matchesStatus = statusFilter === 'all' || displayStatus === statusFilter
       const matchesSplit = splitFilter === 'all' || image.split === splitFilter
       const visibleIssues = image.issues.filter((issue) => VISIBLE_ISSUES.includes(issue.code))
       const matchesIssue = issueFilter === 'all'
@@ -363,7 +369,6 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
   const trainCount = summary?.by_split.find((entry) => entry.split === 'train')?.total ?? 0
   const effectiveMultiplier = hasAugmentationEffect(recipe) ? multiplier : 1
   const estimatedTotal = summary ? summary.total_images - trainCount + (trainCount * effectiveMultiplier) : 0
-  const unsupportedSelected = recipe.tiling_enabled || recipe.isolate_objects_enabled
   const canSaveVersion = versionName.trim().length > 0 && multiplier >= 2 && hasAnyRecipeEffect(recipe)
 
   const resetVersionForm = useCallback(() => {
@@ -392,8 +397,8 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
     }
   }
 
-  const handleCenteredRange = (field: keyof AugmentationRecipe, max: number, value: number) => {
-    const next = Math.max(-max, Math.min(max, value))
+  const handleRange = (field: keyof AugmentationRecipe, max: number, value: number) => {
+    const next = Math.max(0, Math.min(max, value))
     updateRecipe({ [field]: next } as Partial<AugmentationRecipe>)
   }
 
@@ -401,6 +406,12 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
     const parsed = Number(raw)
     if (!Number.isFinite(parsed)) return
     updateRecipe({ resize_size: Math.max(128, Math.min(4096, Math.round(parsed))) })
+  }
+
+  const handleTilingGrid = (raw: string) => {
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed)) return
+    updateRecipe({ tiling_grid: Math.max(2, Math.min(8, Math.round(parsed))) })
   }
 
   const handleResizeMode = (mode: ResizeMode) => updateRecipe({ resize_mode: mode })
@@ -500,7 +511,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg-primary)' }}>
       <div style={finishHeaderStyle}>
-        <button onClick={onBackToAnnotate} style={finishBackButtonStyle}>{language === 'ko' ? '<- 라벨링으로' : '<- Back to Annotate'}</button>
+          <button onClick={onBackToAnnotate} style={finishBackButtonStyle}>{text.back}</button>
 
         <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
 
@@ -514,17 +525,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         <div style={{ flex: 1 }} />
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={() => setShowAutoSplit(true)} style={secondaryButtonStyle}>{text.autoSplit}</button>
-          <button
-            onClick={() => loadWorkspace().catch(console.error)}
-            title={text.refresh}
-            style={finishIconButtonStyle}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M13.3 4.8V1.9M13.3 1.9H10.4M13.3 1.9L11.2 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M13 7.1C12.8 4.8 10.9 3 8.5 3C5.9 3 3.8 5.1 3.8 7.7C3.8 10.3 5.9 12.4 8.5 12.4C10.5 12.4 12.3 11.1 12.9 9.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+          <button onClick={() => loadWorkspace().catch(console.error)} style={secondaryButtonStyle}>{text.refresh}</button>
         </div>
       </div>
 
@@ -558,7 +559,6 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                 { label: text.cards.total, value: summary.total_images, color: 'var(--accent)' },
                 { label: text.cards.ready, value: summary.ready_images, color: 'var(--success)' },
                 { label: text.cards.unlabeled, value: summary.unlabeled_images, color: 'var(--status-unlabeled)' },
-                { label: text.cards.inProgress, value: summary.in_progress_images, color: 'var(--status-labeled)' },
                 { label: text.cards.unassigned, value: summary.unassigned_split_images, color: 'var(--split-unassigned)' },
                 { label: text.cards.missingLabels, value: summary.missing_label_images, color: '#b45309' },
               ].map((card) => (
@@ -607,7 +607,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                                   <div style={{ minWidth: 0 }}>
                                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{image.filename}</div>
                                     <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                      <Badge color={getStatusColor(image.status)} label={statusLabel(image.status)} subtle />
+                                      <Badge color={getStatusColor(toDisplayStatus(image.status))} label={statusLabel(toDisplayStatus(image.status))} subtle />
                                       <Badge color={getSplitColor(image.split)} label={splitLabel(image.split)} subtle />
                                     </div>
                                   </div>
@@ -662,7 +662,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                 <div>{language === 'ko' ? '파일' : 'FILE'}</div>
                 <div>{text.filters.status.toUpperCase()}</div>
                 <div>{text.filters.split.toUpperCase()}</div>
-                <div>{language === 'ko' ? '수량' : 'ANN'}</div>
+                <div>{language === 'ko' ? '# 라벨' : '# Labels'}</div>
                 <div>{language === 'ko' ? '문제' : 'ISSUES'}</div>
                 <div />
               </div>
@@ -679,7 +679,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                           {visibleIssues.length === 0 ? text.filters.ready : text.issues[visibleIssues[0].code]}
                         </div>
                       </div>
-                      <div><Badge color={getStatusColor(image.status)} label={statusLabel(image.status)} /></div>
+                      <div><Badge color={getStatusColor(toDisplayStatus(image.status))} label={statusLabel(toDisplayStatus(image.status))} /></div>
                       <div><Badge color={getSplitColor(image.split)} label={splitLabel(image.split)} /></div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{image.annotation_count}</div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -727,81 +727,43 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                 <div style={stepTitleStyle}>{text.preprocessingStep}</div>
                 <div style={bodyTextStyle}>{text.preprocessingHint}</div>
                 <div style={techniqueGridStyle}>
-                  <TechniqueCard
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '타일링' : 'Tiling'}
-                    description={language === 'ko' ? '작은 객체 인식을 돕기 위해 이미지를 여러 타일로 나눕니다.' : 'Split images into tiles to improve accuracy on small objects.'}
-                    checked={recipe.tiling_enabled}
-                    onToggle={() => toggleField('tiling_enabled')}
-                    preview={buildPreview('tiling', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                    description={language === 'ko' ? '이미지 픽셀 크기를 기준으로 타일을 나눕니다.' : 'Split the full image into pixel-based tiles.'}
+                    enabled={recipe.tiling_enabled}
+                    summary={`${recipe.tiling_grid}x${recipe.tiling_grid}`}
+                    onClick={() => setActiveTechnique('tiling')}
                   />
-
-                  <TechniqueCard
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '자동 방향 보정' : 'Auto-Orient'}
-                    description={language === 'ko' ? 'EXIF 회전 정보를 정리해 픽셀 방향을 표준화합니다.' : 'Discard EXIF rotations and standardize pixel ordering.'}
-                    checked={recipe.auto_orient_enabled}
-                    onToggle={() => toggleField('auto_orient_enabled')}
-                    preview={buildPreview('auto_orient', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                    description={language === 'ko' ? 'EXIF 회전 정보를 정리해 방향을 표준화합니다.' : 'Discard EXIF rotations and standardize orientation.'}
+                    enabled={recipe.auto_orient_enabled}
+                    summary={language === 'ko' ? '기본 방향 정리' : 'Normalize orientation'}
+                    onClick={() => setActiveTechnique('auto_orient')}
                   />
-
-                  <TechniqueCard
-                    title={language === 'ko' ? '객체 분리' : 'Isolate Objects'}
-                    description={language === 'ko' ? '객체를 개별 이미지로 잘라내는 흐름을 먼저 구성합니다.' : 'Crop detected objects into individual images.'}
-                    checked={recipe.isolate_objects_enabled}
-                    onToggle={() => toggleField('isolate_objects_enabled')}
-                    preview={buildPreview('isolate_objects', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  />
-
-                  <TechniqueCard
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '리사이즈' : 'Resize'}
-                    description={language === 'ko' ? '정사각형 크기로 맞추고 비율 처리 방식을 선택합니다.' : 'Resize to a square target and choose how aspect ratio is handled.'}
-                    checked={recipe.resize_enabled}
-                    onToggle={() => toggleField('resize_enabled')}
-                    preview={buildPreview('resize', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <div style={dualInputRowStyle}>
-                      <input type="number" value={recipe.resize_size} disabled={!recipe.resize_enabled} onChange={(e) => handleResizeSize(e.target.value)} style={inputStyle} />
-                      <div style={resizeTimesStyle}>x</div>
-                      <input type="number" value={recipe.resize_size} disabled={!recipe.resize_enabled} onChange={(e) => handleResizeSize(e.target.value)} style={inputStyle} />
-                    </div>
-                    <OptionChips
-                      label={text.resizeMode}
-                      value={recipe.resize_mode}
-                      disabled={!recipe.resize_enabled}
-                      options={[
-                        { value: 'black_edges', label: text.resizeBlack },
-                        { value: 'white_edges', label: text.resizeWhite },
-                        { value: 'stretch', label: text.resizeStretch },
-                      ]}
-                      onChange={(value) => handleResizeMode(value as ResizeMode)}
-                    />
-                  </TechniqueCard>
-
-                  <TechniqueCard
-                    title={language === 'ko' ? '흑백 변환' : 'Grayscale'}
-                    description={language === 'ko' ? '색 정보 대신 형태 중심의 입력으로 바꿉니다.' : 'Convert the image to grayscale before training.'}
-                    checked={recipe.grayscale_enabled}
-                    onToggle={() => toggleField('grayscale_enabled')}
-                    preview={buildPreview('grayscale', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                    description={language === 'ko' ? '정사각형 크기와 여백 처리 방식을 지정합니다.' : 'Set target square size and aspect handling.'}
+                    enabled={recipe.resize_enabled}
+                    summary={`${recipe.resize_size}x${recipe.resize_size} · ${
+                      recipe.resize_mode === 'black_edges' ? text.resizeBlack : recipe.resize_mode === 'white_edges' ? text.resizeWhite : text.resizeStretch
+                    }`}
+                    onClick={() => setActiveTechnique('resize')}
                   />
-
-                  <TechniqueCard
+                  <TechniqueSummaryCard
+                    title={language === 'ko' ? '흑백 변환' : 'Grayscale'}
+                    description={language === 'ko' ? '색 정보를 제거하고 명암 중심으로 만듭니다.' : 'Convert the image to grayscale.'}
+                    enabled={recipe.grayscale_enabled}
+                    summary={language === 'ko' ? '흑백 처리' : 'Monochrome'}
+                    onClick={() => setActiveTechnique('grayscale')}
+                  />
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '대비 보정' : 'Adjust Contrast'}
                     description={language === 'ko' ? '전처리 단계에서 대비를 자동 보정합니다.' : 'Apply preprocessing-time contrast enhancement.'}
-                    checked={recipe.adjust_contrast_enabled}
-                    onToggle={() => toggleField('adjust_contrast_enabled')}
-                    preview={buildPreview('adjust_contrast', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <OptionChips
-                      label={language === 'ko' ? '방식' : 'MODE'}
-                      value={recipe.adjust_contrast_mode}
-                      disabled={!recipe.adjust_contrast_enabled}
-                      options={[
-                        { value: 'stretch', label: text.contrastStretch },
-                        { value: 'equalize', label: text.contrastEqualize },
-                      ]}
-                      onChange={(value) => handleContrastMode(value as ContrastAdjustMode)}
-                    />
-                  </TechniqueCard>
+                    enabled={recipe.adjust_contrast_enabled}
+                    summary={recipe.adjust_contrast_mode === 'equalize' ? text.contrastEqualize : text.contrastStretch}
+                    onClick={() => setActiveTechnique('adjust_contrast')}
+                  />
                 </div>
               </div>
 
@@ -809,148 +771,64 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                 <div style={stepTitleStyle}>{text.augmentationStep}</div>
                 <div style={bodyTextStyle}>{text.augmentationHint}</div>
                 <div style={techniqueGridStyle}>
-                  <TechniqueCard
-                    title={language === 'ko' ? '좌우 반전' : 'Horizontal Flip'}
-                    description={language === 'ko' ? '좌우 반전 샘플을 만듭니다.' : 'Mirror the image from left to right.'}
-                    checked={recipe.horizontal_flip_enabled}
-                    onToggle={() => toggleField('horizontal_flip_enabled')}
-                    preview={buildPreview('horizontal_flip', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  <TechniqueSummaryCard
+                    title={language === 'ko' ? '반전' : 'Flip'}
+                    description={language === 'ko' ? '좌우/상하 반전을 한 카드에서 설정합니다.' : 'Configure horizontal and vertical flips in one place.'}
+                    enabled={recipe.horizontal_flip_enabled || recipe.vertical_flip_enabled}
+                    summary={`${recipe.horizontal_flip_enabled ? 'H' : '-'} / ${recipe.vertical_flip_enabled ? 'V' : '-'}`}
+                    onClick={() => setActiveTechnique('flip')}
                   />
-
-                  <TechniqueCard
-                    title={language === 'ko' ? '상하 반전' : 'Vertical Flip'}
-                    description={language === 'ko' ? '상하 반전 샘플을 만듭니다.' : 'Flip the image vertically.'}
-                    checked={recipe.vertical_flip_enabled}
-                    onToggle={() => toggleField('vertical_flip_enabled')}
-                    preview={buildPreview('vertical_flip', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  />
-
-                  <TechniqueCard
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '회전' : 'Rotate'}
-                    description={language === 'ko' ? '시계 방향 90도, 270도 회전을 각각 선택할 수 있습니다.' : 'Enable clockwise 90deg and 270deg rotations independently.'}
-                    checked={recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled}
-                    onToggle={() => toggleRotate(!(recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled))}
-                    preview={buildPreview('rotate', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <SubCheck label={text.rotate90} checked={recipe.rotate_cw90_enabled} disabled={!(recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled)} onChange={(checked) => updateRecipe({ rotate_cw90_enabled: checked })} />
-                      <SubCheck label={text.rotate270} checked={recipe.rotate_cw270_enabled} disabled={!(recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled)} onChange={(checked) => updateRecipe({ rotate_cw270_enabled: checked })} />
-                    </div>
-                  </TechniqueCard>
-
-                  <TechniqueCard
+                    description={language === 'ko' ? '시계 방향 90º, 270º 회전을 선택합니다.' : 'Enable clockwise 90º and 270º rotations.'}
+                    enabled={recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled}
+                    summary={`${recipe.rotate_cw90_enabled ? '90º' : '-'} / ${recipe.rotate_cw270_enabled ? '270º' : '-'}`}
+                    onClick={() => setActiveTechnique('rotate')}
+                  />
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '기울이기' : 'Shear'}
-                    description={language === 'ko' ? '중앙 0을 기준으로 양옆으로 같은 범위를 설정합니다.' : 'Set a symmetric shear range around zero.'}
-                    checked={recipe.shear_enabled}
-                    onToggle={() => toggleField('shear_enabled')}
-                    preview={buildPreview('shear', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <CenteredSlider
-                      label={language === 'ko' ? '범위' : 'RANGE'}
-                      value={recipe.shear_range}
-                      max={18}
-                      step={1}
-                      disabled={!recipe.shear_enabled}
-                      display={`${toMagnitudeLabel(recipe.shear_range, 0, ' deg')}`}
-                      onChange={(value) => handleCenteredRange('shear_range', 18, value)}
-                    />
-                  </TechniqueCard>
-
-                  <TechniqueCard
+                    description={language === 'ko' ? '0에서 시작해 최대 30º까지 기울이기 강도를 설정합니다.' : 'Set shear strength from 0 up to 30º.'}
+                    enabled={recipe.shear_enabled}
+                    summary={toMagnitudeLabel(recipe.shear_range, 0, 'º')}
+                    onClick={() => setActiveTechnique('shear')}
+                  />
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '밝기' : 'Brightness'}
-                    description={language === 'ko' ? '어둡고 밝은 장면을 모두 커버하도록 범위를 설정합니다.' : 'Set a symmetric brightness jitter range.'}
-                    checked={recipe.brightness_enabled}
-                    onToggle={() => toggleField('brightness_enabled')}
-                    preview={buildPreview('brightness', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <CenteredSlider
-                      label={language === 'ko' ? '범위' : 'RANGE'}
-                      value={recipe.brightness_range}
-                      max={0.45}
-                      step={0.01}
-                      disabled={!recipe.brightness_enabled}
-                      display={toMagnitudeLabel(recipe.brightness_range)}
-                      onChange={(value) => handleCenteredRange('brightness_range', 0.45, value)}
-                    />
-                  </TechniqueCard>
-
-                  <TechniqueCard
+                    description={language === 'ko' ? '0에서 시작해 최대 30%까지 밝기 범위를 설정합니다.' : 'Set brightness range from 0 up to 30%.'}
+                    enabled={recipe.brightness_enabled}
+                    summary={toPercentLabel(recipe.brightness_range, 0)}
+                    onClick={() => setActiveTechnique('brightness')}
+                  />
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '대비' : 'Contrast'}
-                    description={language === 'ko' ? '낮은 대비와 높은 대비를 동시에 고려합니다.' : 'Set a symmetric contrast jitter range.'}
-                    checked={recipe.contrast_enabled}
-                    onToggle={() => toggleField('contrast_enabled')}
-                    preview={buildPreview('contrast', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <CenteredSlider
-                      label={language === 'ko' ? '범위' : 'RANGE'}
-                      value={recipe.contrast_range}
-                      max={0.55}
-                      step={0.01}
-                      disabled={!recipe.contrast_enabled}
-                      display={toMagnitudeLabel(recipe.contrast_range)}
-                      onChange={(value) => handleCenteredRange('contrast_range', 0.55, value)}
-                    />
-                  </TechniqueCard>
-
-                  <TechniqueCard
+                    description={language === 'ko' ? '0에서 시작해 최대 30%까지 대비 범위를 설정합니다.' : 'Set contrast range from 0 up to 30%.'}
+                    enabled={recipe.contrast_enabled}
+                    summary={toPercentLabel(recipe.contrast_range, 0)}
+                    onClick={() => setActiveTechnique('contrast')}
+                  />
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '채도' : 'Saturation'}
-                    description={language === 'ko' ? '색 강도 변화 범위를 좌우 대칭으로 조절합니다.' : 'Set a symmetric saturation jitter range.'}
-                    checked={recipe.saturation_enabled}
-                    onToggle={() => toggleField('saturation_enabled')}
-                    preview={buildPreview('saturation', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <CenteredSlider
-                      label={language === 'ko' ? '범위' : 'RANGE'}
-                      value={recipe.saturation_range}
-                      max={0.8}
-                      step={0.01}
-                      disabled={!recipe.saturation_enabled}
-                      display={toMagnitudeLabel(recipe.saturation_range)}
-                      onChange={(value) => handleCenteredRange('saturation_range', 0.8, value)}
-                    />
-                  </TechniqueCard>
-
-                  <TechniqueCard
+                    description={language === 'ko' ? '0에서 시작해 최대 30%까지 채도 범위를 설정합니다.' : 'Set saturation range from 0 up to 30%.'}
+                    enabled={recipe.saturation_enabled}
+                    summary={toPercentLabel(recipe.saturation_range, 0)}
+                    onClick={() => setActiveTechnique('saturation')}
+                  />
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '색조' : 'Hue'}
-                    description={language === 'ko' ? '색상 회전 범위를 +/- 기준으로 지정합니다.' : 'Set a symmetric hue-rotation range.'}
-                    checked={recipe.hue_enabled}
-                    onToggle={() => toggleField('hue_enabled')}
-                    preview={buildPreview('hue', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <CenteredSlider
-                      label={language === 'ko' ? '범위' : 'RANGE'}
-                      value={recipe.hue_range}
-                      max={45}
-                      step={1}
-                      disabled={!recipe.hue_enabled}
-                      display={toMagnitudeLabel(recipe.hue_range, 0, ' deg')}
-                      onChange={(value) => handleCenteredRange('hue_range', 45, value)}
-                    />
-                  </TechniqueCard>
-
-                  <TechniqueCard
+                    description={language === 'ko' ? '0에서 시작해 최대 30º까지 색조 범위를 설정합니다.' : 'Set hue range from 0 up to 30º.'}
+                    enabled={recipe.hue_enabled}
+                    summary={toMagnitudeLabel(recipe.hue_range, 0, 'º')}
+                    onClick={() => setActiveTechnique('hue')}
+                  />
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '블러' : 'Blur'}
-                    description={language === 'ko' ? '초점 이탈과 약한 모션 블러 범위를 설정합니다.' : 'Set a symmetric blur range around zero.'}
-                    checked={recipe.blur_enabled}
-                    onToggle={() => toggleField('blur_enabled')}
-                    preview={buildPreview('blur', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
-                  >
-                    <CenteredSlider
-                      label={language === 'ko' ? '범위' : 'RANGE'}
-                      value={recipe.blur_range}
-                      max={3}
-                      step={0.1}
-                      disabled={!recipe.blur_enabled}
-                      display={toMagnitudeLabel(recipe.blur_range, 1)}
-                      onChange={(value) => handleCenteredRange('blur_range', 3, value)}
-                    />
-                  </TechniqueCard>
+                    description={language === 'ko' ? '0에서 시작해 최대 30%까지 블러 강도를 설정합니다.' : 'Set blur strength from 0 up to 30%.'}
+                    enabled={recipe.blur_enabled}
+                    summary={toPercentLabel(recipe.blur_range, 0)}
+                    onClick={() => setActiveTechnique('blur')}
+                  />
                 </div>
               </div>
-
-              {unsupportedSelected && (
-                <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)' }}>{text.unsupportedNote}</div>
-              )}
 
               {versionMessage && (
                 <div style={{ marginTop: 16, fontSize: 12, color: versionMessage === text.saved || versionMessage === text.deleted ? 'var(--success)' : '#dc2626' }}>
@@ -1071,13 +949,24 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         )}
       </div>
 
-      {showAutoSplit && (
-        <AutoSplitDialog
-          totalImages={summary.total_images}
-          onClose={() => setShowAutoSplit(false)}
-          onComplete={async () => {
-            await loadWorkspace()
-          }}
+      {activeTechnique != null && (
+        <TechniqueModal
+          technique={activeTechnique}
+          onClose={() => setActiveTechnique(null)}
+          recipe={recipe}
+          language={language}
+          previewImageUrl={previewImageUrl}
+          previewLabel={exampleImage?.filename ?? ''}
+          emptyText={text.previewEmpty}
+          resizeModeText={text}
+          onToggleField={toggleField}
+          onUpdateRecipe={updateRecipe}
+          onHandleResizeSize={handleResizeSize}
+          onHandleTilingGrid={handleTilingGrid}
+          onHandleResizeMode={handleResizeMode}
+          onHandleContrastMode={handleContrastMode}
+          onHandleRange={handleRange}
+          rotateText={{ cw90: text.rotate90, cw270: text.rotate270 }}
         />
       )}
     </div>
@@ -1130,37 +1019,311 @@ function SplitPieChart({ entries, splitLabel, language }: { entries: FinishSumma
   )
 }
 
-function TechniqueCard({
+function TechniqueSummaryCard({
   title,
   description,
-  checked,
-  onToggle,
-  preview,
-  children,
+  enabled,
+  summary,
+  onClick,
 }: {
   title: string
   description: string
-  checked: boolean
-  onToggle: () => void
-  preview: ReactNode
-  children?: ReactNode
+  enabled: boolean
+  summary: string
+  onClick: () => void
 }) {
   return (
-    <div style={{ ...techniqueCardStyle, opacity: checked ? 1 : 0.88 }}>
-      <div style={techniquePreviewShellStyle}>{preview}</div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <input type="checkbox" checked={checked} onChange={onToggle} style={{ marginTop: 3 }} />
-        <div style={{ flex: 1 }}>
+    <button onClick={onClick} style={{ ...techniqueSummaryCardStyle, opacity: enabled ? 1 : 0.82 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <div style={{ textAlign: 'left', flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>{title}</div>
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>{description}</div>
         </div>
+        <Badge color={enabled ? 'var(--accent)' : 'var(--text-muted)'} label={enabled ? 'ON' : 'OFF'} subtle />
       </div>
-      {children && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>}
+      <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'left' }}>{summary}</div>
+    </button>
+  )
+}
+
+function TechniqueModal({
+  technique,
+  onClose,
+  recipe,
+  language,
+  previewImageUrl,
+  previewLabel,
+  emptyText,
+  resizeModeText,
+  onToggleField,
+  onUpdateRecipe,
+  onHandleResizeSize,
+  onHandleTilingGrid,
+  onHandleResizeMode,
+  onHandleContrastMode,
+  onHandleRange,
+  rotateText,
+}: {
+  technique: TechniqueKey
+  onClose: () => void
+  recipe: AugmentationRecipe
+  language: 'en' | 'ko'
+  previewImageUrl: string
+  previewLabel: string
+  emptyText: string
+  resizeModeText: {
+    resizeMode: string
+    resizeBlack: string
+    resizeWhite: string
+    resizeStretch: string
+    contrastStretch: string
+    contrastEqualize: string
+  }
+  onToggleField: (field: keyof AugmentationRecipe) => void
+  onUpdateRecipe: (patch: Partial<AugmentationRecipe>) => void
+  onHandleResizeSize: (raw: string) => void
+  onHandleTilingGrid: (raw: string) => void
+  onHandleResizeMode: (mode: ResizeMode) => void
+  onHandleContrastMode: (mode: ContrastAdjustMode) => void
+  onHandleRange: (field: keyof AugmentationRecipe, max: number, value: number) => void
+  rotateText: { cw90: string; cw270: string }
+}) {
+  const contentMap: Record<TechniqueKey, { title: string; description: string; kind: string }> = {
+    tiling: {
+      title: language === 'ko' ? '타일링' : 'Tiling',
+      description: language === 'ko' ? '이미지 픽셀 크기를 기준으로 N x N 타일로 나눕니다.' : 'Split the full image into N x N pixel-based tiles.',
+      kind: 'tiling',
+    },
+    auto_orient: {
+      title: language === 'ko' ? '자동 방향 보정' : 'Auto-Orient',
+      description: language === 'ko' ? 'EXIF 회전 정보를 정리해 방향을 표준화합니다.' : 'Discard EXIF rotations and standardize orientation.',
+      kind: 'auto_orient',
+    },
+    resize: {
+      title: language === 'ko' ? '리사이즈' : 'Resize',
+      description: language === 'ko' ? '정사각형 크기와 비율 처리 방식을 지정합니다.' : 'Set the square size and aspect handling mode.',
+      kind: 'resize',
+    },
+    grayscale: {
+      title: language === 'ko' ? '흑백 변환' : 'Grayscale',
+      description: language === 'ko' ? '색 정보를 제거하고 명암 중심으로 변환합니다.' : 'Convert the full image to grayscale.',
+      kind: 'grayscale',
+    },
+    adjust_contrast: {
+      title: language === 'ko' ? '대비 보정' : 'Adjust Contrast',
+      description: language === 'ko' ? '전처리 단계에서 대비를 자동 보정합니다.' : 'Apply preprocessing-time contrast enhancement.',
+      kind: 'adjust_contrast',
+    },
+    flip: {
+      title: language === 'ko' ? '반전' : 'Flip',
+      description: language === 'ko' ? '좌우 반전과 상하 반전을 한 곳에서 설정합니다.' : 'Configure horizontal and vertical flips together.',
+      kind: recipe.horizontal_flip_enabled ? 'horizontal_flip' : 'vertical_flip',
+    },
+    rotate: {
+      title: language === 'ko' ? '회전' : 'Rotate',
+      description: language === 'ko' ? '시계 방향 90º, 270º 회전을 선택합니다.' : 'Enable clockwise 90º and 270º rotations.',
+      kind: 'rotate',
+    },
+    shear: {
+      title: language === 'ko' ? '기울이기' : 'Shear',
+      description: language === 'ko' ? '0에서 시작해 최대 30º까지 기울이기 강도를 설정합니다.' : 'Set shear strength from 0 up to 30º.',
+      kind: 'shear',
+    },
+    brightness: {
+      title: language === 'ko' ? '밝기' : 'Brightness',
+      description: language === 'ko' ? '0에서 시작해 최대 30%까지 밝기 범위를 설정합니다.' : 'Set brightness range from 0 up to 30%.',
+      kind: 'brightness',
+    },
+    contrast: {
+      title: language === 'ko' ? '대비' : 'Contrast',
+      description: language === 'ko' ? '0에서 시작해 최대 30%까지 대비 범위를 설정합니다.' : 'Set contrast range from 0 up to 30%.',
+      kind: 'contrast',
+    },
+    saturation: {
+      title: language === 'ko' ? '채도' : 'Saturation',
+      description: language === 'ko' ? '0에서 시작해 최대 30%까지 채도 범위를 설정합니다.' : 'Set saturation range from 0 up to 30%.',
+      kind: 'saturation',
+    },
+    hue: {
+      title: language === 'ko' ? '색조' : 'Hue',
+      description: language === 'ko' ? '0에서 시작해 최대 30º까지 색조 범위를 설정합니다.' : 'Set hue range from 0 up to 30º.',
+      kind: 'hue',
+    },
+    blur: {
+      title: language === 'ko' ? '블러' : 'Blur',
+      description: language === 'ko' ? '0에서 시작해 최대 30%까지 블러 강도를 설정합니다.' : 'Set blur strength from 0 up to 30%.',
+      kind: 'blur',
+    },
+  }
+
+  const content = contentMap[technique]
+
+  return (
+    <div style={techniqueModalOverlayStyle} onClick={onClose}>
+      <div style={techniqueModalStyle} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12, marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>{content.title}</div>
+            <div style={{ marginTop: 6, ...bodyTextStyle }}>{content.description}</div>
+          </div>
+          <button onClick={onClose} style={modalCloseButtonStyle}>×</button>
+        </div>
+
+        <div style={techniqueModalPreviewStyle}>{buildPreview(content.kind, recipe, previewImageUrl, previewLabel, emptyText)}</div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
+          {technique === 'tiling' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.tiling_enabled} onChange={() => onToggleField('tiling_enabled')} />
+                <span>{language === 'ko' ? '타일링 사용' : 'Enable tiling'}</span>
+              </label>
+              <div style={dualInputRowCompactStyle}>
+                <input type="number" min={2} max={8} value={recipe.tiling_grid} disabled={!recipe.tiling_enabled} onChange={(e) => onHandleTilingGrid(e.target.value)} style={inputStyle} />
+                <div style={resizeTimesStyle}>x</div>
+                <input type="number" min={2} max={8} value={recipe.tiling_grid} disabled={!recipe.tiling_enabled} onChange={(e) => onHandleTilingGrid(e.target.value)} style={inputStyle} />
+              </div>
+            </>
+          )}
+
+          {technique === 'auto_orient' && (
+            <label style={modalCheckRowStyle}>
+              <input type="checkbox" checked={recipe.auto_orient_enabled} onChange={() => onToggleField('auto_orient_enabled')} />
+              <span>{language === 'ko' ? '자동 방향 보정 사용' : 'Enable auto-orient'}</span>
+            </label>
+          )}
+
+          {technique === 'resize' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.resize_enabled} onChange={() => onToggleField('resize_enabled')} />
+                <span>{language === 'ko' ? '리사이즈 사용' : 'Enable resize'}</span>
+              </label>
+              <div style={dualInputRowCompactStyle}>
+                <input type="number" value={recipe.resize_size} disabled={!recipe.resize_enabled} onChange={(e) => onHandleResizeSize(e.target.value)} style={inputStyle} />
+                <div style={resizeTimesStyle}>x</div>
+                <div style={{ ...bodyTextStyle, fontSize: 12, whiteSpace: 'nowrap' }}>{language === 'ko' ? `정사각형 ${recipe.resize_size} x ${recipe.resize_size}` : `Square ${recipe.resize_size} x ${recipe.resize_size}`}</div>
+              </div>
+              <OptionChips
+                label={resizeModeText.resizeMode}
+                value={recipe.resize_mode}
+                disabled={!recipe.resize_enabled}
+                options={[
+                  { value: 'black_edges', label: resizeModeText.resizeBlack },
+                  { value: 'white_edges', label: resizeModeText.resizeWhite },
+                  { value: 'stretch', label: resizeModeText.resizeStretch },
+                ]}
+                onChange={(value) => onHandleResizeMode(value as ResizeMode)}
+              />
+            </>
+          )}
+
+          {technique === 'grayscale' && (
+            <label style={modalCheckRowStyle}>
+              <input type="checkbox" checked={recipe.grayscale_enabled} onChange={() => onToggleField('grayscale_enabled')} />
+              <span>{language === 'ko' ? '흑백 변환 사용' : 'Enable grayscale'}</span>
+            </label>
+          )}
+
+          {technique === 'adjust_contrast' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.adjust_contrast_enabled} onChange={() => onToggleField('adjust_contrast_enabled')} />
+                <span>{language === 'ko' ? '대비 보정 사용' : 'Enable contrast adjustment'}</span>
+              </label>
+              <OptionChips
+                label={language === 'ko' ? '방식' : 'MODE'}
+                value={recipe.adjust_contrast_mode}
+                disabled={!recipe.adjust_contrast_enabled}
+                options={[
+                  { value: 'stretch', label: resizeModeText.contrastStretch },
+                  { value: 'equalize', label: resizeModeText.contrastEqualize },
+                ]}
+                onChange={(value) => onHandleContrastMode(value as ContrastAdjustMode)}
+              />
+            </>
+          )}
+
+          {technique === 'flip' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <SubCheck label={language === 'ko' ? '좌우 반전' : 'Horizontal Flip'} checked={recipe.horizontal_flip_enabled} disabled={false} onChange={(checked) => onUpdateRecipe({ horizontal_flip_enabled: checked })} />
+              <SubCheck label={language === 'ko' ? '상하 반전' : 'Vertical Flip'} checked={recipe.vertical_flip_enabled} disabled={false} onChange={(checked) => onUpdateRecipe({ vertical_flip_enabled: checked })} />
+            </div>
+          )}
+
+          {technique === 'rotate' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <SubCheck label={rotateText.cw90} checked={recipe.rotate_cw90_enabled} disabled={false} onChange={(checked) => onUpdateRecipe({ rotate_cw90_enabled: checked })} />
+              <SubCheck label={rotateText.cw270} checked={recipe.rotate_cw270_enabled} disabled={false} onChange={(checked) => onUpdateRecipe({ rotate_cw270_enabled: checked })} />
+            </div>
+          )}
+
+          {technique === 'shear' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.shear_enabled} onChange={() => onToggleField('shear_enabled')} />
+                <span>{language === 'ko' ? '기울이기 사용' : 'Enable shear'}</span>
+              </label>
+              <RangeSlider label={language === 'ko' ? '범위' : 'RANGE'} value={recipe.shear_range} max={30} step={1} disabled={!recipe.shear_enabled} display={toMagnitudeLabel(recipe.shear_range, 0, 'º')} onChange={(value) => onHandleRange('shear_range', 30, value)} />
+            </>
+          )}
+
+          {technique === 'brightness' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.brightness_enabled} onChange={() => onToggleField('brightness_enabled')} />
+                <span>{language === 'ko' ? '밝기 사용' : 'Enable brightness'}</span>
+              </label>
+              <RangeSlider label={language === 'ko' ? '범위' : 'RANGE'} value={recipe.brightness_range} max={0.3} step={0.01} disabled={!recipe.brightness_enabled} display={toPercentLabel(recipe.brightness_range, 0)} onChange={(value) => onHandleRange('brightness_range', 0.3, value)} />
+            </>
+          )}
+
+          {technique === 'contrast' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.contrast_enabled} onChange={() => onToggleField('contrast_enabled')} />
+                <span>{language === 'ko' ? '대비 사용' : 'Enable contrast'}</span>
+              </label>
+              <RangeSlider label={language === 'ko' ? '범위' : 'RANGE'} value={recipe.contrast_range} max={0.3} step={0.01} disabled={!recipe.contrast_enabled} display={toPercentLabel(recipe.contrast_range, 0)} onChange={(value) => onHandleRange('contrast_range', 0.3, value)} />
+            </>
+          )}
+
+          {technique === 'saturation' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.saturation_enabled} onChange={() => onToggleField('saturation_enabled')} />
+                <span>{language === 'ko' ? '채도 사용' : 'Enable saturation'}</span>
+              </label>
+              <RangeSlider label={language === 'ko' ? '범위' : 'RANGE'} value={recipe.saturation_range} max={0.3} step={0.01} disabled={!recipe.saturation_enabled} display={toPercentLabel(recipe.saturation_range, 0)} onChange={(value) => onHandleRange('saturation_range', 0.3, value)} />
+            </>
+          )}
+
+          {technique === 'hue' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.hue_enabled} onChange={() => onToggleField('hue_enabled')} />
+                <span>{language === 'ko' ? '색조 사용' : 'Enable hue'}</span>
+              </label>
+              <RangeSlider label={language === 'ko' ? '범위' : 'RANGE'} value={recipe.hue_range} max={30} step={1} disabled={!recipe.hue_enabled} display={toMagnitudeLabel(recipe.hue_range, 0, 'º')} onChange={(value) => onHandleRange('hue_range', 30, value)} />
+            </>
+          )}
+
+          {technique === 'blur' && (
+            <>
+              <label style={modalCheckRowStyle}>
+                <input type="checkbox" checked={recipe.blur_enabled} onChange={() => onToggleField('blur_enabled')} />
+                <span>{language === 'ko' ? '블러 사용' : 'Enable blur'}</span>
+              </label>
+              <RangeSlider label={language === 'ko' ? '범위' : 'RANGE'} value={recipe.blur_range} max={0.3} step={0.01} disabled={!recipe.blur_enabled} display={toPercentLabel(recipe.blur_range, 0)} onChange={(value) => onHandleRange('blur_range', 0.3, value)} />
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
-function CenteredSlider({
+function RangeSlider({
   label,
   value,
   max,
@@ -1185,7 +1348,7 @@ function CenteredSlider({
       </div>
       <input
         type="range"
-        min={-max}
+        min={0}
         max={max}
         step={step}
         value={value}
@@ -1265,8 +1428,9 @@ function getPreviewConfig(kind: string, recipe: AugmentationRecipe): { imageStyl
   }
 
   if (kind === 'tiling' && recipe.tiling_enabled) {
+    const cell = 100 / recipe.tiling_grid
     shared.overlay = (
-      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.45) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.45) 1px, transparent 1px)', backgroundSize: '33.333% 33.333%', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.45) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.45) 1px, transparent 1px)', backgroundSize: `${cell}% ${cell}%`, pointerEvents: 'none' }} />
     )
   }
 
@@ -1275,7 +1439,7 @@ function getPreviewConfig(kind: string, recipe: AugmentationRecipe): { imageStyl
   }
 
   if (kind === 'isolate_objects' && recipe.isolate_objects_enabled) {
-    shared.imageStyle = { transform: 'scale(1.5)', objectPosition: 'center 28%' }
+    shared.imageStyle = { transform: 'scale(0.96)' }
     shared.overlay = <div style={{ position: 'absolute', inset: 18, border: '2px dashed rgba(255,255,255,0.75)', borderRadius: 18, pointerEvents: 'none' }} />
   }
 
@@ -1302,16 +1466,23 @@ function getPreviewConfig(kind: string, recipe: AugmentationRecipe): { imageStyl
     shared.imageStyle = { transform: 'scaleX(-1)' }
   }
 
+  if (kind === 'flip') {
+    const transforms: string[] = []
+    if (recipe.horizontal_flip_enabled) transforms.push('scaleX(-1)')
+    if (recipe.vertical_flip_enabled) transforms.push('scaleY(-1)')
+    shared.imageStyle = { transform: transforms.length > 0 ? transforms.join(' ') : 'none' }
+  }
+
   if (kind === 'vertical_flip' && recipe.vertical_flip_enabled) {
     shared.imageStyle = { transform: 'scaleY(-1)' }
   }
 
   if (kind === 'rotate' && (recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled)) {
-    shared.imageStyle = { transform: recipe.rotate_cw90_enabled ? 'rotate(90deg) scale(0.86)' : 'rotate(-90deg) scale(0.86)' }
+    shared.imageStyle = { transform: recipe.rotate_cw90_enabled ? 'rotate(90deg) scale(0.76)' : 'rotate(-90deg) scale(0.76)' }
   }
 
   if (kind === 'shear' && recipe.shear_enabled) {
-    shared.imageStyle = { transform: `skewX(${Math.max(-14, Math.min(14, recipe.shear_range))}deg)` }
+    shared.imageStyle = { transform: `skewX(${Math.min(14, recipe.shear_range)}deg)` }
   }
 
   if (kind === 'brightness' && recipe.brightness_enabled) {
@@ -1350,13 +1521,13 @@ function summarizeRecipe(recipe: AugmentationRecipe | null, language: 'en' | 'ko
   if (recipe.horizontal_flip_enabled) parts.push('HFlip')
   if (recipe.vertical_flip_enabled) parts.push('VFlip')
   if (recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled) parts.push(language === 'ko' ? '회전' : 'Rotate')
-  if (recipe.shear_enabled && Math.abs(recipe.shear_range) > 0) parts.push(`${language === 'ko' ? '기울이기' : 'Shear'} +/-${Math.abs(recipe.shear_range).toFixed(0)}deg`)
-  if (recipe.brightness_enabled && Math.abs(recipe.brightness_range) > 0) parts.push(`${language === 'ko' ? '밝기' : 'Brightness'} +/-${Math.abs(recipe.brightness_range).toFixed(2)}`)
-  if (recipe.contrast_enabled && Math.abs(recipe.contrast_range) > 0) parts.push(`${language === 'ko' ? '대비' : 'Contrast'} +/-${Math.abs(recipe.contrast_range).toFixed(2)}`)
-  if (recipe.saturation_enabled && Math.abs(recipe.saturation_range) > 0) parts.push(`${language === 'ko' ? '채도' : 'Saturation'} +/-${Math.abs(recipe.saturation_range).toFixed(2)}`)
-  if (recipe.hue_enabled && Math.abs(recipe.hue_range) > 0) parts.push(`${language === 'ko' ? '색조' : 'Hue'} +/-${Math.abs(recipe.hue_range).toFixed(0)}deg`)
-  if (recipe.blur_enabled && Math.abs(recipe.blur_range) > 0) parts.push(`${language === 'ko' ? '블러' : 'Blur'} +/-${Math.abs(recipe.blur_range).toFixed(1)}`)
-  if (recipe.tiling_enabled) parts.push(language === 'ko' ? '타일링' : 'Tiling')
+  if (recipe.shear_enabled && Math.abs(recipe.shear_range) > 0) parts.push(`${language === 'ko' ? '기울이기' : 'Shear'} ±${Math.abs(recipe.shear_range).toFixed(0)}º`)
+  if (recipe.brightness_enabled && Math.abs(recipe.brightness_range) > 0) parts.push(`${language === 'ko' ? '밝기' : 'Brightness'} ${toPercentLabel(recipe.brightness_range, 0)}`)
+  if (recipe.contrast_enabled && Math.abs(recipe.contrast_range) > 0) parts.push(`${language === 'ko' ? '대비' : 'Contrast'} ${toPercentLabel(recipe.contrast_range, 0)}`)
+  if (recipe.saturation_enabled && Math.abs(recipe.saturation_range) > 0) parts.push(`${language === 'ko' ? '채도' : 'Saturation'} ${toPercentLabel(recipe.saturation_range, 0)}`)
+  if (recipe.hue_enabled && Math.abs(recipe.hue_range) > 0) parts.push(`${language === 'ko' ? '색조' : 'Hue'} ±${Math.abs(recipe.hue_range).toFixed(0)}º`)
+  if (recipe.blur_enabled && Math.abs(recipe.blur_range) > 0) parts.push(`${language === 'ko' ? '블러' : 'Blur'} ${toPercentLabel(recipe.blur_range, 0)}`)
+  if (recipe.tiling_enabled) parts.push(`${language === 'ko' ? '타일링' : 'Tiling'} ${recipe.tiling_grid}x${recipe.tiling_grid}`)
   if (recipe.isolate_objects_enabled) parts.push(language === 'ko' ? '객체 분리' : 'Isolate Objects')
   return parts.join(' · ')
 }
@@ -1365,6 +1536,10 @@ function getIssueColor(code: FinishImageIssue['code']): string {
   if (code === 'missing_annotations') return '#dc2626'
   if (code === 'missing_labels') return '#b45309'
   return 'var(--split-unassigned)'
+}
+
+function toDisplayStatus(status: 'unlabeled' | 'in_progress' | 'labeled' | 'approved'): 'unlabeled' | 'labeled' | 'approved' {
+  return status === 'in_progress' ? 'labeled' : status
 }
 
 function getStatusColor(status: Exclude<StatusFilter, 'all'>): string {
@@ -1544,6 +1719,70 @@ const techniqueGridStyle: CSSProperties = {
   marginTop: 12,
 }
 
+const techniqueSummaryCardStyle: CSSProperties = {
+  padding: 14,
+  borderRadius: 16,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+  textAlign: 'left',
+}
+
+const techniqueModalOverlayStyle: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 9999,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 20,
+  background: 'rgba(0,0,0,0.56)',
+  backdropFilter: 'blur(6px)',
+}
+
+const techniqueModalStyle: CSSProperties = {
+  width: 'min(860px, calc(100vw - 40px))',
+  maxHeight: 'calc(100vh - 40px)',
+  overflowY: 'auto',
+  padding: 20,
+  borderRadius: 20,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-secondary)',
+  boxShadow: 'var(--shadow-lg)',
+}
+
+const modalCloseButtonStyle: CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: 999,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-primary)',
+  fontSize: 18,
+  lineHeight: 1,
+}
+
+const techniqueModalPreviewStyle: CSSProperties = {
+  position: 'relative',
+  borderRadius: 12,
+  overflow: 'hidden',
+  background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.14), rgba(255,255,255,0.04))',
+  border: '1px solid rgba(255,255,255,0.08)',
+  height: 320,
+}
+
+const modalCheckRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '10px 12px',
+  borderRadius: 10,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-primary)',
+  fontSize: 13,
+  fontWeight: 700,
+}
+
 const techniqueCardStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -1572,7 +1811,8 @@ const techniquePreviewBackdropStyle: CSSProperties = {
 const techniquePreviewImageStyle: CSSProperties = {
   width: '100%',
   height: '100%',
-  objectFit: 'cover',
+  objectFit: 'contain',
+  padding: 10,
   transition: 'transform 0.18s ease, filter 0.18s ease',
 }
 
@@ -1632,6 +1872,13 @@ const inputStyle: CSSProperties = {
 const dualInputRowStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '1fr 28px 1fr',
+  gap: 8,
+  alignItems: 'center',
+}
+
+const dualInputRowCompactStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
   gap: 8,
   alignItems: 'center',
 }

@@ -12,13 +12,14 @@ interface Props {
   onSelect: () => void
   onSelectAtPointer: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
+  defaultCursor: string
 }
 
 export default function PolygonShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
   labelName,
-  onSelect, onSelectAtPointer, onUpdateGeometry,
+  onSelect, onSelectAtPointer, onUpdateGeometry, defaultCursor,
 }: Props) {
   const geo = annotation.geometry as PolygonGeometry
   const isClosed = geo.type === 'polygon'
@@ -151,7 +152,7 @@ export default function PolygonShape({
         onDragMove={(e) => setDragOffset({ x: e.target.x(), y: e.target.y() })}
         onDragEnd={handlePolygonDragEnd}
         onMouseEnter={(e) => setCursor(e.target, isSelected ? 'move' : 'pointer')}
-        onMouseLeave={(e) => setCursor(e.target, 'crosshair')}
+        onMouseLeave={(e) => setCursor(e.target, defaultCursor)}
         perfectDrawEnabled={false}
         hitStrokeWidth={8}
       />
@@ -197,7 +198,7 @@ export default function PolygonShape({
           onContextMenu={(e) => handleVertexRightClick(e, i)}
           onClick={(e) => e.cancelBubble = true}
           onMouseEnter={(e) => setCursor(e.target, 'pointer')}
-          onMouseLeave={(e) => setCursor(e.target, 'crosshair')}
+          onMouseLeave={(e) => setCursor(e.target, defaultCursor)}
           perfectDrawEnabled={false}
         />
       ))}

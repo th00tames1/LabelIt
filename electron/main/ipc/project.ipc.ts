@@ -1,6 +1,7 @@
 import { ipcMain, dialog, app } from 'electron'
 import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
+import Database from 'better-sqlite3'
 import { openDatabase, closeDatabase } from '../db/database'
 import { initProjectMeta, getProjectMeta, setProjectName } from '../db/repositories/project.repo'
 import type { RecentProject } from '../db/schema'
@@ -68,6 +69,30 @@ export function registerProjectIpc(): void {
     return getProjectMeta()
   })
 
+  ipcMain.handle('project:renameRecent', async (_event, filePath: string, name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) throw new Error('Project name cannot be empty')
+    if (!existsSync(filePath)) throw new Error('Project file does not exist')
+
+    const currentFilePath = currentProjectDir ? join(currentProjectDir, 'project.lbl') : null
+    if (currentFilePath === filePath) {
+      setProjectName(trimmed)
+    } else {
+      const database = new Database(filePath)
+      try {
+        database.prepare('INSERT OR REPLACE INTO project_meta (key, value) VALUES (?, ?)').run('name', trimmed)
+      } finally {
+        database.close()
+      }
+    }
+
+    const recent = (recentStore.get('recent') as RecentProject[]).map((project) =>
+      project.file_path === filePath ? { ...project, name: trimmed } : project,
+    )
+    recentStore.set('recent', recent)
+    return recent.filter((project) => existsSync(project.file_path))
+  })
+
   ipcMain.handle('project:listRecent', async () => {
     return (recentStore.get('recent') as RecentProject[]).filter(
       (r) => existsSync(r.file_path)
@@ -77,7 +102,7 @@ export function registerProjectIpc(): void {
   ipcMain.handle('project:showOpenDialog', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Open Project',
-      filters: [{ name: 'LabelingTool Project', extensions: ['lbl'] }],
+        filters: [{ name: 'LabelIt Project', extensions: ['lbl'] }],
       properties: ['openFile'],
     })
     return result.canceled ? null : result.filePaths[0]

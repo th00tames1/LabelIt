@@ -1,0 +1,1730 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
+import AutoSplitDialog from '../../components/AutoSplitDialog'
+import { exportApi, finishApi, imageApi } from '../../api/ipc'
+import { useProjectStore } from '../../store/projectStore'
+import { useI18n } from '../../i18n'
+import { toLocalFileUrl } from '../../utils/paths'
+import type {
+  AugmentationRecipe,
+  ContrastAdjustMode,
+  DatasetVersion,
+  ExportFormat,
+  FinishImageIssue,
+  FinishSummary,
+  Image,
+  ResizeMode,
+  SplitType,
+  VersionExportBatchResult,
+} from '../../types'
+
+interface Props {
+  onBackToAnnotate: () => void
+  onOpenImage: (imageId: string) => void
+}
+
+type FinishTab = 'overview' | 'dataset' | 'versions' | 'export'
+type StatusFilter = 'all' | 'unlabeled' | 'in_progress' | 'labeled' | 'approved'
+type DatasetIssueFilter = 'all' | 'ready' | FinishImageIssue['code']
+
+const STATUS_OPTIONS = ['unlabeled', 'in_progress', 'labeled', 'approved'] as const
+const SPLIT_OPTIONS = ['train', 'val', 'test', 'unassigned'] as const
+const VISIBLE_ISSUES: FinishImageIssue['code'][] = ['missing_annotations', 'missing_labels', 'unassigned_split']
+
+const DEFAULT_RECIPE: AugmentationRecipe = {
+  tiling_enabled: false,
+  auto_orient_enabled: false,
+  isolate_objects_enabled: false,
+  resize_enabled: false,
+  resize_size: 640,
+  resize_mode: 'black_edges',
+  grayscale_enabled: false,
+  adjust_contrast_enabled: false,
+  adjust_contrast_mode: 'stretch',
+  horizontal_flip_enabled: false,
+  vertical_flip_enabled: false,
+  rotate_cw90_enabled: false,
+  rotate_cw270_enabled: false,
+  shear_enabled: false,
+  shear_range: 0,
+  brightness_enabled: false,
+  brightness_range: 0,
+  contrast_enabled: false,
+  contrast_range: 0,
+  saturation_enabled: false,
+  saturation_range: 0,
+  hue_enabled: false,
+  hue_range: 0,
+  blur_enabled: false,
+  blur_range: 0,
+}
+
+function cloneRecipe(recipe: AugmentationRecipe): AugmentationRecipe {
+  return { ...recipe }
+}
+
+function hasPreprocessingEffect(recipe: AugmentationRecipe): boolean {
+  return recipe.auto_orient_enabled
+    || recipe.resize_enabled
+    || recipe.grayscale_enabled
+    || recipe.adjust_contrast_enabled
+}
+
+function hasAugmentationEffect(recipe: AugmentationRecipe): boolean {
+  return recipe.horizontal_flip_enabled
+    || recipe.vertical_flip_enabled
+    || recipe.rotate_cw90_enabled
+    || recipe.rotate_cw270_enabled
+    || (recipe.shear_enabled && Math.abs(recipe.shear_range) > 0)
+    || (recipe.brightness_enabled && Math.abs(recipe.brightness_range) > 0)
+    || (recipe.contrast_enabled && Math.abs(recipe.contrast_range) > 0)
+    || (recipe.saturation_enabled && Math.abs(recipe.saturation_range) > 0)
+    || (recipe.hue_enabled && Math.abs(recipe.hue_range) > 0)
+    || (recipe.blur_enabled && Math.abs(recipe.blur_range) > 0)
+}
+
+function hasAnyRecipeEffect(recipe: AugmentationRecipe): boolean {
+  return hasPreprocessingEffect(recipe) || hasAugmentationEffect(recipe)
+}
+
+function toMagnitudeLabel(value: number, digits = 2, suffix = ''): string {
+  const magnitude = Math.abs(value).toFixed(digits)
+  return `+/- ${magnitude}${suffix}`
+}
+
+export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
+  const project = useProjectStore((s) => s.currentProject)
+  const { language, statusLabel, splitLabel } = useI18n()
+
+  const [activeTab, setActiveTab] = useState<FinishTab>('overview')
+  const [summary, setSummary] = useState<FinishSummary | null>(null)
+  const [versions, setVersions] = useState<DatasetVersion[]>([])
+  const [exampleImage, setExampleImage] = useState<Image | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showAutoSplit, setShowAutoSplit] = useState(false)
+  const [expandedBlocker, setExpandedBlocker] = useState<FinishImageIssue['code'] | null>(null)
+
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [splitFilter, setSplitFilter] = useState<'all' | SplitType>('all')
+  const [issueFilter, setIssueFilter] = useState<DatasetIssueFilter>('all')
+
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null)
+  const [versionName, setVersionName] = useState('Augmented v1')
+  const [multiplier, setMultiplier] = useState(3)
+  const [recipe, setRecipe] = useState<AugmentationRecipe>(cloneRecipe(DEFAULT_RECIPE))
+  const [savingVersion, setSavingVersion] = useState(false)
+  const [versionMessage, setVersionMessage] = useState<string | null>(null)
+
+  const [selectedExportIds, setSelectedExportIds] = useState<string[]>(['raw'])
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('yolo')
+  const [exportSplit, setExportSplit] = useState<SplitType | 'all'>('all')
+  const [includeImages, setIncludeImages] = useState(true)
+  const [outputDir, setOutputDir] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportResult, setExportResult] = useState<VersionExportBatchResult | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  const text = language === 'ko'
+    ? {
+        title: '마무리 워크스페이스',
+        subtitle: '라벨링 상태를 점검하고, 전처리/증강 버전을 만든 뒤 여러 형식으로 내보냅니다.',
+        back: '라벨링으로 돌아가기',
+        refresh: '새로고침',
+        autoSplit: '자동 분할',
+        loading: '마무리 워크스페이스를 불러오는 중입니다...',
+        failed: '마무리 워크스페이스를 불러오지 못했습니다.',
+        tabs: {
+          overview: '개요',
+          dataset: '데이터셋',
+          versions: '버전',
+          export: '내보내기',
+        },
+        cards: {
+          total: '전체 이미지',
+          ready: '내보내기 가능',
+          unlabeled: '미라벨',
+          inProgress: '작업 중',
+          unassigned: '분할 미지정',
+          missingLabels: '클래스 미지정',
+        },
+        blockers: '현재 해결할 항목',
+        blockerHint: '문제를 누르면 해당 이미지 목록이 펼쳐지고, 이미지를 누르면 바로 이동합니다.',
+        noBlockers: '지금 막히는 항목이 없습니다. 버전 생성과 내보내기를 진행해도 됩니다.',
+        splitHealth: 'Split 구성',
+        splitHealthHint: '현재 데이터셋이 train / val / test / unassigned에 어떻게 배치되어 있는지 보여줍니다.',
+        filters: {
+          search: '파일명 검색',
+          status: '상태',
+          split: '분할',
+          issue: '문제',
+          all: '전체',
+          ready: '준비 완료',
+        },
+        issues: {
+          missing_annotations: '어노테이션 없음',
+          missing_labels: '클래스 미지정',
+          unassigned_split: '분할 미지정',
+        },
+        annotate: '열기',
+        noImages: '현재 필터에 맞는 이미지가 없습니다.',
+        versionBuilder: '버전 구성',
+        versionName: '버전 이름',
+        multiplier: '데이터 배수',
+        trainOnlyHint: '증강은 train 이미지에만 적용되고, 전처리는 모든 split에 반영됩니다.',
+        estimated: '예상 결과',
+        preprocessingStep: '1단계 · 전처리',
+        preprocessingHint: '입력 이미지를 먼저 정리하는 단계입니다.',
+        augmentationStep: '2단계 · 증강',
+        augmentationHint: '학습용 train 이미지 수를 늘리고 다양한 변형을 주는 단계입니다.',
+        previewEmpty: '이미지를 업로드하면 여기에서 실제 미리보기를 볼 수 있습니다.',
+        saveVersion: '버전 저장',
+        updateVersion: '버전 업데이트',
+        cancelEdit: '편집 취소',
+        saved: '버전이 저장되었습니다. 내보내기 탭에서 바로 사용할 수 있습니다.',
+        deleted: '버전이 삭제되었습니다.',
+        exportTitle: '버전별 내보내기',
+        exportHint: '여러 버전을 선택하면 지정한 폴더 아래에 버전별 결과가 각각 생성됩니다.',
+        exportVersions: '내보내기 실행',
+        browse: '폴더 선택',
+        outputDir: '출력 폴더',
+        exportFailed: '버전 내보내기에 실패했습니다.',
+        exportDone: '내보내기가 완료되었습니다.',
+        includeImages: '결과 폴더에 이미지 파일 포함',
+        selectVersion: '내보낼 버전을 하나 이상 선택하세요.',
+        selectOutput: '출력 폴더를 먼저 선택하세요.',
+        rawTag: '원본',
+        edit: '편집',
+        delete: '삭제',
+        on: '사용',
+        off: '끄기',
+        resizeMode: '비율 처리',
+        resizeBlack: '검은 여백',
+        resizeWhite: '흰 여백',
+        resizeStretch: '늘이기',
+        contrastStretch: '대비 스트레칭',
+        contrastEqualize: '히스토그램 평활화',
+        rotate90: '시계 방향 90도',
+        rotate270: '시계 방향 270도',
+        unsupportedNote: 'Tiling과 Isolate Objects는 현재 미리보기 중심으로 먼저 반영되어 있습니다.',
+        exportImagesForced: '증강 버전은 생성 이미지가 필요하므로 이미지 포함 옵션이 자동으로 켜집니다.',
+      }
+    : {
+        title: 'Finish Workspace',
+        subtitle: 'Review dataset health, build preprocessing and augmentation versions, then export multiple variants.',
+        back: 'Back To Annotate',
+        refresh: 'Refresh',
+        autoSplit: 'Auto Split',
+        loading: 'Loading finish workspace...',
+        failed: 'Failed to load the finish workspace.',
+        tabs: {
+          overview: 'Overview',
+          dataset: 'Dataset',
+          versions: 'Versions',
+          export: 'Export',
+        },
+        cards: {
+          total: 'Total Images',
+          ready: 'Export Ready',
+          unlabeled: 'Unlabeled',
+          inProgress: 'In Progress',
+          unassigned: 'Unassigned Split',
+          missingLabels: 'Missing Classes',
+        },
+        blockers: 'Current blockers',
+        blockerHint: 'Click a blocker to expand the affected images, then jump straight into annotation.',
+        noBlockers: 'No major blockers found. You can move on to versioning and export.',
+        splitHealth: 'Split health',
+        splitHealthHint: 'Shows how the current dataset is distributed across train / val / test / unassigned.',
+        filters: {
+          search: 'Search filename',
+          status: 'Status',
+          split: 'Split',
+          issue: 'Issue',
+          all: 'All',
+          ready: 'Ready',
+        },
+        issues: {
+          missing_annotations: 'No annotations',
+          missing_labels: 'Missing class labels',
+          unassigned_split: 'Split not assigned',
+        },
+        annotate: 'Open',
+        noImages: 'No images match the current filters.',
+        versionBuilder: 'Version Builder',
+        versionName: 'Version Name',
+        multiplier: 'Dataset Multiplier',
+        trainOnlyHint: 'Augmentation applies to train only, while preprocessing affects every split.',
+        estimated: 'Estimated result',
+        preprocessingStep: 'Step 1 · Preprocessing',
+        preprocessingHint: 'Clean and standardize the incoming images first.',
+        augmentationStep: 'Step 2 · Augmentation',
+        augmentationHint: 'Expand train images with randomized transformations.',
+        previewEmpty: 'Import images to unlock live previews here.',
+        saveVersion: 'Save Version',
+        updateVersion: 'Update Version',
+        cancelEdit: 'Cancel Edit',
+        saved: 'Version saved. You can use it immediately in the Export tab.',
+        deleted: 'Version deleted.',
+        exportTitle: 'Version Export',
+        exportHint: 'When multiple versions are selected, each version exports into its own folder inside the destination.',
+        exportVersions: 'Export Versions',
+        browse: 'Choose Folder',
+        outputDir: 'Output Folder',
+        exportFailed: 'Version export failed.',
+        exportDone: 'Export completed.',
+        includeImages: 'Include image files in the export output',
+        selectVersion: 'Select at least one dataset version to export.',
+        selectOutput: 'Choose an output folder first.',
+        rawTag: 'Raw',
+        edit: 'Edit',
+        delete: 'Delete',
+        on: 'On',
+        off: 'Off',
+        resizeMode: 'Aspect handling',
+        resizeBlack: 'Black Edges',
+        resizeWhite: 'White Edges',
+        resizeStretch: 'Stretch',
+        contrastStretch: 'Contrast Stretching',
+        contrastEqualize: 'Histogram Equalization',
+        rotate90: 'Clockwise 90deg',
+        rotate270: 'Clockwise 270deg',
+        unsupportedNote: 'Tiling and Isolate Objects are staged in the UI first and currently preview-focused.',
+        exportImagesForced: 'Augmented versions need materialized generated images, so this stays enabled automatically.',
+      }
+
+  const previewImageUrl = exampleImage != null
+    ? toLocalFileUrl(exampleImage.thumbnail_path ?? exampleImage.file_path)
+    : ''
+
+  const loadWorkspace = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [nextSummary, nextVersions, images] = await Promise.all([
+        finishApi.getSummary(),
+        finishApi.listVersions(),
+        imageApi.list(),
+      ])
+      setSummary(nextSummary)
+      setVersions(nextVersions)
+      setExampleImage(images.find((image) => image.thumbnail_path != null) ?? images[0] ?? null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.failed)
+    } finally {
+      setLoading(false)
+    }
+  }, [text.failed])
+
+  useEffect(() => {
+    loadWorkspace().catch(console.error)
+  }, [loadWorkspace])
+
+  useEffect(() => {
+    const validIds = new Set(versions.map((version) => version.id))
+    setSelectedExportIds((current) => {
+      const next = current.filter((id) => validIds.has(id))
+      return next.length > 0 ? next : ['raw']
+    })
+  }, [versions])
+
+  const filteredImages = useMemo(() => {
+    const images = summary?.images ?? []
+    const keyword = search.trim().toLowerCase()
+    return images.filter((image) => {
+      const matchesSearch = keyword.length === 0 || image.filename.toLowerCase().includes(keyword)
+      const matchesStatus = statusFilter === 'all' || image.status === statusFilter
+      const matchesSplit = splitFilter === 'all' || image.split === splitFilter
+      const visibleIssues = image.issues.filter((issue) => VISIBLE_ISSUES.includes(issue.code))
+      const matchesIssue = issueFilter === 'all'
+        || (issueFilter === 'ready' ? visibleIssues.length === 0 : visibleIssues.some((issue) => issue.code === issueFilter))
+      return matchesSearch && matchesStatus && matchesSplit && matchesIssue
+    })
+  }, [issueFilter, search, splitFilter, statusFilter, summary?.images])
+
+  const blockerGroups = useMemo(() => {
+    if (!summary) return []
+    return VISIBLE_ISSUES.map((code) => ({
+      code,
+      label: text.issues[code],
+      color: getIssueColor(code),
+      items: summary.images.filter((image) => image.issues.some((issue) => issue.code === code)),
+    })).filter((group) => group.items.length > 0)
+  }, [summary, text.issues])
+
+  const hasAugSelection = selectedExportIds.some((id) => versions.find((version) => version.id === id)?.kind === 'augmented')
+  useEffect(() => {
+    if (hasAugSelection && !includeImages) {
+      setIncludeImages(true)
+    }
+  }, [hasAugSelection, includeImages])
+
+  const trainCount = summary?.by_split.find((entry) => entry.split === 'train')?.total ?? 0
+  const effectiveMultiplier = hasAugmentationEffect(recipe) ? multiplier : 1
+  const estimatedTotal = summary ? summary.total_images - trainCount + (trainCount * effectiveMultiplier) : 0
+  const unsupportedSelected = recipe.tiling_enabled || recipe.isolate_objects_enabled
+  const canSaveVersion = versionName.trim().length > 0 && multiplier >= 2 && hasAnyRecipeEffect(recipe)
+
+  const resetVersionForm = useCallback(() => {
+    setEditingVersionId(null)
+    setVersionName('Augmented v1')
+    setMultiplier(3)
+    setRecipe(cloneRecipe(DEFAULT_RECIPE))
+    setVersionMessage(null)
+  }, [])
+
+  const updateRecipe = useCallback((patch: Partial<AugmentationRecipe>) => {
+    setRecipe((current) => ({ ...current, ...patch }))
+  }, [])
+
+  const toggleField = (field: keyof AugmentationRecipe) => {
+    updateRecipe({ [field]: !recipe[field] } as Partial<AugmentationRecipe>)
+  }
+
+  const toggleRotate = (enabled: boolean) => {
+    if (!enabled) {
+      updateRecipe({ rotate_cw90_enabled: false, rotate_cw270_enabled: false })
+      return
+    }
+    if (!recipe.rotate_cw90_enabled && !recipe.rotate_cw270_enabled) {
+      updateRecipe({ rotate_cw90_enabled: true })
+    }
+  }
+
+  const handleCenteredRange = (field: keyof AugmentationRecipe, max: number, value: number) => {
+    const next = Math.max(-max, Math.min(max, value))
+    updateRecipe({ [field]: next } as Partial<AugmentationRecipe>)
+  }
+
+  const handleResizeSize = (raw: string) => {
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed)) return
+    updateRecipe({ resize_size: Math.max(128, Math.min(4096, Math.round(parsed))) })
+  }
+
+  const handleResizeMode = (mode: ResizeMode) => updateRecipe({ resize_mode: mode })
+  const handleContrastMode = (mode: ContrastAdjustMode) => updateRecipe({ adjust_contrast_mode: mode })
+
+  const handleSaveVersion = async () => {
+    if (!canSaveVersion) return
+    setSavingVersion(true)
+    setVersionMessage(null)
+    try {
+      await finishApi.saveVersion({
+        id: editingVersionId ?? undefined,
+        name: versionName,
+        preset: 'custom',
+        multiplier,
+        recipe,
+      })
+      await loadWorkspace()
+      setVersionMessage(text.saved)
+      resetVersionForm()
+    } catch (err) {
+      setVersionMessage(err instanceof Error ? err.message : text.failed)
+    } finally {
+      setSavingVersion(false)
+    }
+  }
+
+  const handleEditVersion = (version: DatasetVersion) => {
+    if (version.kind !== 'augmented' || version.recipe == null) return
+    setActiveTab('versions')
+    setEditingVersionId(version.id)
+    setVersionName(version.name)
+    setMultiplier(version.multiplier)
+    setRecipe(cloneRecipe({ ...DEFAULT_RECIPE, ...version.recipe }))
+    setVersionMessage(null)
+  }
+
+  const handleDeleteVersion = async (versionId: string) => {
+    try {
+      await finishApi.deleteVersion(versionId)
+      await loadWorkspace()
+      setSelectedExportIds((current) => current.filter((id) => id !== versionId))
+      setVersionMessage(text.deleted)
+      if (editingVersionId === versionId) resetVersionForm()
+    } catch (err) {
+      setVersionMessage(err instanceof Error ? err.message : text.failed)
+    }
+  }
+
+  const handlePickOutputDir = async () => {
+    const dir = await exportApi.showSaveDialog()
+    if (dir) setOutputDir(dir)
+  }
+
+  const handleToggleExportVersion = (versionId: string) => {
+    setSelectedExportIds((current) => current.includes(versionId)
+      ? current.filter((id) => id !== versionId)
+      : [...current, versionId])
+  }
+
+  const handleExport = async () => {
+    if (selectedExportIds.length === 0) {
+      setExportError(text.selectVersion)
+      return
+    }
+    if (!outputDir) {
+      setExportError(text.selectOutput)
+      return
+    }
+    setIsExporting(true)
+    setExportError(null)
+    setExportResult(null)
+    try {
+      const result = await finishApi.exportVersions({
+        version_ids: selectedExportIds,
+        format: exportFormat,
+        output_dir: outputDir,
+        include_images: includeImages,
+        split: exportSplit === 'all' ? undefined : exportSplit,
+      })
+      setExportResult(result)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : text.exportFailed)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  if (loading) {
+    return <div style={loadingScreenStyle}>{text.loading}</div>
+  }
+
+  if (error || !summary) {
+    return <div style={{ padding: 32, color: '#dc2626' }}>{error ?? text.failed}</div>
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg-primary)' }}>
+      <div style={finishHeaderStyle}>
+        <button onClick={onBackToAnnotate} style={finishBackButtonStyle}>{language === 'ko' ? '<- 라벨링으로' : '<- Back to Annotate'}</button>
+
+        <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {project?.name}
+          </span>
+          <span style={finishBadgeStyle}>{text.title}</span>
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={() => setShowAutoSplit(true)} style={secondaryButtonStyle}>{text.autoSplit}</button>
+          <button
+            onClick={() => loadWorkspace().catch(console.error)}
+            title={text.refresh}
+            style={finishIconButtonStyle}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M13.3 4.8V1.9M13.3 1.9H10.4M13.3 1.9L11.2 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M13 7.1C12.8 4.8 10.9 3 8.5 3C5.9 3 3.8 5.1 3.8 7.7C3.8 10.3 5.9 12.4 8.5 12.4C10.5 12.4 12.3 11.1 12.9 9.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, padding: '10px 18px', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+        {(['overview', 'dataset', 'versions', 'export'] as FinishTab[]).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            style={{
+              minWidth: 96,
+              height: 30,
+              padding: '4px 12px',
+              borderRadius: 5,
+              border: `1px solid ${activeTab === tab ? 'rgba(var(--accent-rgb),0.42)' : 'var(--border)'}`,
+              background: activeTab === tab ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
+              color: activeTab === tab ? 'var(--accent)' : 'var(--text-secondary)',
+              fontSize: 12,
+              fontWeight: 800,
+            }}
+          >
+            {text.tabs[tab]}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, padding: '18px', overflowY: 'auto' }}>
+        {activeTab === 'overview' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div style={statGridStyle}>
+              {[
+                { label: text.cards.total, value: summary.total_images, color: 'var(--accent)' },
+                { label: text.cards.ready, value: summary.ready_images, color: 'var(--success)' },
+                { label: text.cards.unlabeled, value: summary.unlabeled_images, color: 'var(--status-unlabeled)' },
+                { label: text.cards.inProgress, value: summary.in_progress_images, color: 'var(--status-labeled)' },
+                { label: text.cards.unassigned, value: summary.unassigned_split_images, color: 'var(--split-unassigned)' },
+                { label: text.cards.missingLabels, value: summary.missing_label_images, color: '#b45309' },
+              ].map((card) => (
+                <div key={card.label} style={statCardStyle}>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: card.color }}>{card.value}</div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>{card.label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={overviewGridStyle}>
+              <div style={panelStyle}>
+                <div style={panelTitleStyle}>{text.blockers}</div>
+                {blockerGroups.length === 0 ? (
+                  <div style={bodyTextStyle}>{text.noBlockers}</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ ...bodyTextStyle, fontSize: 12 }}>{text.blockerHint}</div>
+                    {blockerGroups.map((group) => {
+                      const expanded = expandedBlocker === group.code
+                      return (
+                        <div key={group.code} style={accordionStyle}>
+                          <button
+                            onClick={() => setExpandedBlocker(expanded ? null : group.code)}
+                            style={{
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '12px 14px',
+                              background: expanded ? 'rgba(var(--accent-rgb),0.12)' : 'transparent',
+                              color: 'var(--text-primary)',
+                              textAlign: 'left',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <span style={{ width: 10, height: 10, borderRadius: 999, background: group.color, flexShrink: 0 }} />
+                              <span style={{ fontSize: 13, fontWeight: 700 }}>{group.label}</span>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: group.color }}>{group.items.length}</span>
+                          </button>
+                          {expanded && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 12px 12px' }}>
+                              {group.items.map((image) => (
+                                <button key={image.id} onClick={() => onOpenImage(image.id)} style={blockerImageButtonStyle}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{image.filename}</div>
+                                    <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                      <Badge color={getStatusColor(image.status)} label={statusLabel(image.status)} subtle />
+                                      <Badge color={getSplitColor(image.split)} label={splitLabel(image.split)} subtle />
+                                    </div>
+                                  </div>
+                                  <span style={{ color: 'var(--accent)', fontSize: 12, fontWeight: 700 }}>{text.annotate}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div style={panelStyle}>
+                <div style={panelTitleStyle}>{text.splitHealth}</div>
+                <div style={{ ...bodyTextStyle, fontSize: 12, marginBottom: 14 }}>{text.splitHealthHint}</div>
+                <SplitPieChart entries={summary.by_split} splitLabel={splitLabel} language={language} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'dataset' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10 }}>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={text.filters.search} style={inputStyle} />
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={inputStyle}>
+                <option value="all">{`${text.filters.status} · ${text.filters.all}`}</option>
+                {STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>{statusLabel(status)}</option>
+                ))}
+              </select>
+              <select value={splitFilter} onChange={(e) => setSplitFilter(e.target.value as 'all' | SplitType)} style={inputStyle}>
+                <option value="all">{`${text.filters.split} · ${text.filters.all}`}</option>
+                {SPLIT_OPTIONS.map((split) => (
+                  <option key={split} value={split}>{splitLabel(split)}</option>
+                ))}
+              </select>
+              <select value={issueFilter} onChange={(e) => setIssueFilter(e.target.value as DatasetIssueFilter)} style={inputStyle}>
+                <option value="all">{`${text.filters.issue} · ${text.filters.all}`}</option>
+                <option value="ready">{text.filters.ready}</option>
+                {VISIBLE_ISSUES.map((issue) => (
+                  <option key={issue} value={issue}>{text.issues[issue]}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ ...panelStyle, padding: 0, overflow: 'hidden' }}>
+              <div style={datasetHeaderStyle}>
+                <div>{language === 'ko' ? '파일' : 'FILE'}</div>
+                <div>{text.filters.status.toUpperCase()}</div>
+                <div>{text.filters.split.toUpperCase()}</div>
+                <div>{language === 'ko' ? '수량' : 'ANN'}</div>
+                <div>{language === 'ko' ? '문제' : 'ISSUES'}</div>
+                <div />
+              </div>
+              {filteredImages.length === 0 ? (
+                <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>{text.noImages}</div>
+              ) : (
+                filteredImages.map((image) => {
+                  const visibleIssues = image.issues.filter((issue) => VISIBLE_ISSUES.includes(issue.code))
+                  return (
+                    <div key={image.id} style={datasetRowStyle}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{image.filename}</div>
+                        <div style={{ marginTop: 4, fontSize: 11, color: visibleIssues.length === 0 ? 'var(--success)' : 'var(--text-muted)' }}>
+                          {visibleIssues.length === 0 ? text.filters.ready : text.issues[visibleIssues[0].code]}
+                        </div>
+                      </div>
+                      <div><Badge color={getStatusColor(image.status)} label={statusLabel(image.status)} /></div>
+                      <div><Badge color={getSplitColor(image.split)} label={splitLabel(image.split)} /></div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{image.annotation_count}</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {visibleIssues.length === 0
+                          ? <Badge color="var(--success)" label={text.filters.ready} subtle />
+                          : visibleIssues.map((issue) => <Badge key={issue.code} color={getIssueColor(issue.code)} label={text.issues[issue.code]} subtle />)}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button onClick={() => onOpenImage(image.id)} style={primaryGhostButtonStyle}>{text.annotate}</button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'versions' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={panelStyle}>
+              <div style={panelTitleStyle}>{text.versionBuilder}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr', gap: 12, marginBottom: 14 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={fieldLabelStyle}>{text.versionName}</span>
+                  <input value={versionName} onChange={(e) => setVersionName(e.target.value)} style={inputStyle} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={fieldLabelStyle}>{text.multiplier}</span>
+                  <input type="number" min={2} max={8} value={multiplier} onChange={(e) => setMultiplier(Math.max(2, Math.min(8, Number(e.target.value) || 2)))} style={inputStyle} />
+                </label>
+              </div>
+
+              <div style={estimateCardStyle}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{text.estimated}</div>
+                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                  {language === 'ko'
+                    ? `Train ${trainCount}장 -> 약 ${trainCount * effectiveMultiplier}장, 전체는 약 ${estimatedTotal}장으로 예상됩니다.`
+                    : `Train ${trainCount} images -> about ${trainCount * effectiveMultiplier} images, for roughly ${estimatedTotal} total images.`}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>{text.trainOnlyHint}</div>
+              </div>
+
+              <div style={{ marginTop: 18 }}>
+                <div style={stepTitleStyle}>{text.preprocessingStep}</div>
+                <div style={bodyTextStyle}>{text.preprocessingHint}</div>
+                <div style={techniqueGridStyle}>
+                  <TechniqueCard
+                    title={language === 'ko' ? '타일링' : 'Tiling'}
+                    description={language === 'ko' ? '작은 객체 인식을 돕기 위해 이미지를 여러 타일로 나눕니다.' : 'Split images into tiles to improve accuracy on small objects.'}
+                    checked={recipe.tiling_enabled}
+                    onToggle={() => toggleField('tiling_enabled')}
+                    preview={buildPreview('tiling', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  />
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '자동 방향 보정' : 'Auto-Orient'}
+                    description={language === 'ko' ? 'EXIF 회전 정보를 정리해 픽셀 방향을 표준화합니다.' : 'Discard EXIF rotations and standardize pixel ordering.'}
+                    checked={recipe.auto_orient_enabled}
+                    onToggle={() => toggleField('auto_orient_enabled')}
+                    preview={buildPreview('auto_orient', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  />
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '객체 분리' : 'Isolate Objects'}
+                    description={language === 'ko' ? '객체를 개별 이미지로 잘라내는 흐름을 먼저 구성합니다.' : 'Crop detected objects into individual images.'}
+                    checked={recipe.isolate_objects_enabled}
+                    onToggle={() => toggleField('isolate_objects_enabled')}
+                    preview={buildPreview('isolate_objects', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  />
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '리사이즈' : 'Resize'}
+                    description={language === 'ko' ? '정사각형 크기로 맞추고 비율 처리 방식을 선택합니다.' : 'Resize to a square target and choose how aspect ratio is handled.'}
+                    checked={recipe.resize_enabled}
+                    onToggle={() => toggleField('resize_enabled')}
+                    preview={buildPreview('resize', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <div style={dualInputRowStyle}>
+                      <input type="number" value={recipe.resize_size} disabled={!recipe.resize_enabled} onChange={(e) => handleResizeSize(e.target.value)} style={inputStyle} />
+                      <div style={resizeTimesStyle}>x</div>
+                      <input type="number" value={recipe.resize_size} disabled={!recipe.resize_enabled} onChange={(e) => handleResizeSize(e.target.value)} style={inputStyle} />
+                    </div>
+                    <OptionChips
+                      label={text.resizeMode}
+                      value={recipe.resize_mode}
+                      disabled={!recipe.resize_enabled}
+                      options={[
+                        { value: 'black_edges', label: text.resizeBlack },
+                        { value: 'white_edges', label: text.resizeWhite },
+                        { value: 'stretch', label: text.resizeStretch },
+                      ]}
+                      onChange={(value) => handleResizeMode(value as ResizeMode)}
+                    />
+                  </TechniqueCard>
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '흑백 변환' : 'Grayscale'}
+                    description={language === 'ko' ? '색 정보 대신 형태 중심의 입력으로 바꿉니다.' : 'Convert the image to grayscale before training.'}
+                    checked={recipe.grayscale_enabled}
+                    onToggle={() => toggleField('grayscale_enabled')}
+                    preview={buildPreview('grayscale', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  />
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '대비 보정' : 'Adjust Contrast'}
+                    description={language === 'ko' ? '전처리 단계에서 대비를 자동 보정합니다.' : 'Apply preprocessing-time contrast enhancement.'}
+                    checked={recipe.adjust_contrast_enabled}
+                    onToggle={() => toggleField('adjust_contrast_enabled')}
+                    preview={buildPreview('adjust_contrast', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <OptionChips
+                      label={language === 'ko' ? '방식' : 'MODE'}
+                      value={recipe.adjust_contrast_mode}
+                      disabled={!recipe.adjust_contrast_enabled}
+                      options={[
+                        { value: 'stretch', label: text.contrastStretch },
+                        { value: 'equalize', label: text.contrastEqualize },
+                      ]}
+                      onChange={(value) => handleContrastMode(value as ContrastAdjustMode)}
+                    />
+                  </TechniqueCard>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <div style={stepTitleStyle}>{text.augmentationStep}</div>
+                <div style={bodyTextStyle}>{text.augmentationHint}</div>
+                <div style={techniqueGridStyle}>
+                  <TechniqueCard
+                    title={language === 'ko' ? '좌우 반전' : 'Horizontal Flip'}
+                    description={language === 'ko' ? '좌우 반전 샘플을 만듭니다.' : 'Mirror the image from left to right.'}
+                    checked={recipe.horizontal_flip_enabled}
+                    onToggle={() => toggleField('horizontal_flip_enabled')}
+                    preview={buildPreview('horizontal_flip', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  />
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '상하 반전' : 'Vertical Flip'}
+                    description={language === 'ko' ? '상하 반전 샘플을 만듭니다.' : 'Flip the image vertically.'}
+                    checked={recipe.vertical_flip_enabled}
+                    onToggle={() => toggleField('vertical_flip_enabled')}
+                    preview={buildPreview('vertical_flip', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  />
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '회전' : 'Rotate'}
+                    description={language === 'ko' ? '시계 방향 90도, 270도 회전을 각각 선택할 수 있습니다.' : 'Enable clockwise 90deg and 270deg rotations independently.'}
+                    checked={recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled}
+                    onToggle={() => toggleRotate(!(recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled))}
+                    preview={buildPreview('rotate', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <SubCheck label={text.rotate90} checked={recipe.rotate_cw90_enabled} disabled={!(recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled)} onChange={(checked) => updateRecipe({ rotate_cw90_enabled: checked })} />
+                      <SubCheck label={text.rotate270} checked={recipe.rotate_cw270_enabled} disabled={!(recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled)} onChange={(checked) => updateRecipe({ rotate_cw270_enabled: checked })} />
+                    </div>
+                  </TechniqueCard>
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '기울이기' : 'Shear'}
+                    description={language === 'ko' ? '중앙 0을 기준으로 양옆으로 같은 범위를 설정합니다.' : 'Set a symmetric shear range around zero.'}
+                    checked={recipe.shear_enabled}
+                    onToggle={() => toggleField('shear_enabled')}
+                    preview={buildPreview('shear', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <CenteredSlider
+                      label={language === 'ko' ? '범위' : 'RANGE'}
+                      value={recipe.shear_range}
+                      max={18}
+                      step={1}
+                      disabled={!recipe.shear_enabled}
+                      display={`${toMagnitudeLabel(recipe.shear_range, 0, ' deg')}`}
+                      onChange={(value) => handleCenteredRange('shear_range', 18, value)}
+                    />
+                  </TechniqueCard>
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '밝기' : 'Brightness'}
+                    description={language === 'ko' ? '어둡고 밝은 장면을 모두 커버하도록 범위를 설정합니다.' : 'Set a symmetric brightness jitter range.'}
+                    checked={recipe.brightness_enabled}
+                    onToggle={() => toggleField('brightness_enabled')}
+                    preview={buildPreview('brightness', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <CenteredSlider
+                      label={language === 'ko' ? '범위' : 'RANGE'}
+                      value={recipe.brightness_range}
+                      max={0.45}
+                      step={0.01}
+                      disabled={!recipe.brightness_enabled}
+                      display={toMagnitudeLabel(recipe.brightness_range)}
+                      onChange={(value) => handleCenteredRange('brightness_range', 0.45, value)}
+                    />
+                  </TechniqueCard>
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '대비' : 'Contrast'}
+                    description={language === 'ko' ? '낮은 대비와 높은 대비를 동시에 고려합니다.' : 'Set a symmetric contrast jitter range.'}
+                    checked={recipe.contrast_enabled}
+                    onToggle={() => toggleField('contrast_enabled')}
+                    preview={buildPreview('contrast', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <CenteredSlider
+                      label={language === 'ko' ? '범위' : 'RANGE'}
+                      value={recipe.contrast_range}
+                      max={0.55}
+                      step={0.01}
+                      disabled={!recipe.contrast_enabled}
+                      display={toMagnitudeLabel(recipe.contrast_range)}
+                      onChange={(value) => handleCenteredRange('contrast_range', 0.55, value)}
+                    />
+                  </TechniqueCard>
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '채도' : 'Saturation'}
+                    description={language === 'ko' ? '색 강도 변화 범위를 좌우 대칭으로 조절합니다.' : 'Set a symmetric saturation jitter range.'}
+                    checked={recipe.saturation_enabled}
+                    onToggle={() => toggleField('saturation_enabled')}
+                    preview={buildPreview('saturation', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <CenteredSlider
+                      label={language === 'ko' ? '범위' : 'RANGE'}
+                      value={recipe.saturation_range}
+                      max={0.8}
+                      step={0.01}
+                      disabled={!recipe.saturation_enabled}
+                      display={toMagnitudeLabel(recipe.saturation_range)}
+                      onChange={(value) => handleCenteredRange('saturation_range', 0.8, value)}
+                    />
+                  </TechniqueCard>
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '색조' : 'Hue'}
+                    description={language === 'ko' ? '색상 회전 범위를 +/- 기준으로 지정합니다.' : 'Set a symmetric hue-rotation range.'}
+                    checked={recipe.hue_enabled}
+                    onToggle={() => toggleField('hue_enabled')}
+                    preview={buildPreview('hue', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <CenteredSlider
+                      label={language === 'ko' ? '범위' : 'RANGE'}
+                      value={recipe.hue_range}
+                      max={45}
+                      step={1}
+                      disabled={!recipe.hue_enabled}
+                      display={toMagnitudeLabel(recipe.hue_range, 0, ' deg')}
+                      onChange={(value) => handleCenteredRange('hue_range', 45, value)}
+                    />
+                  </TechniqueCard>
+
+                  <TechniqueCard
+                    title={language === 'ko' ? '블러' : 'Blur'}
+                    description={language === 'ko' ? '초점 이탈과 약한 모션 블러 범위를 설정합니다.' : 'Set a symmetric blur range around zero.'}
+                    checked={recipe.blur_enabled}
+                    onToggle={() => toggleField('blur_enabled')}
+                    preview={buildPreview('blur', recipe, previewImageUrl, exampleImage?.filename ?? '', text.previewEmpty)}
+                  >
+                    <CenteredSlider
+                      label={language === 'ko' ? '범위' : 'RANGE'}
+                      value={recipe.blur_range}
+                      max={3}
+                      step={0.1}
+                      disabled={!recipe.blur_enabled}
+                      display={toMagnitudeLabel(recipe.blur_range, 1)}
+                      onChange={(value) => handleCenteredRange('blur_range', 3, value)}
+                    />
+                  </TechniqueCard>
+                </div>
+              </div>
+
+              {unsupportedSelected && (
+                <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)' }}>{text.unsupportedNote}</div>
+              )}
+
+              {versionMessage && (
+                <div style={{ marginTop: 16, fontSize: 12, color: versionMessage === text.saved || versionMessage === text.deleted ? 'var(--success)' : '#dc2626' }}>
+                  {versionMessage}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+                <button onClick={handleSaveVersion} disabled={!canSaveVersion || savingVersion} style={primaryButtonWideStyle}>
+                  {editingVersionId ? text.updateVersion : text.saveVersion}
+                </button>
+                {editingVersionId && (
+                  <button onClick={resetVersionForm} style={secondaryButtonWideStyle}>{text.cancelEdit}</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'export' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '0.9fr 1.1fr', gap: 16 }}>
+            <div style={panelStyle}>
+              <div style={panelTitleStyle}>{text.exportTitle}</div>
+              <div style={bodyTextStyle}>{text.exportHint}</div>
+
+              <div style={{ marginTop: 16 }}>
+                <div style={fieldLabelStyle}>{language === 'ko' ? '형식' : 'FORMAT'}</div>
+                <div style={formatGridStyle}>
+                  {(['yolo', 'coco', 'voc', 'csv'] as ExportFormat[]).map((format) => (
+                    <button key={format} onClick={() => setExportFormat(format)} style={{ ...formatButtonStyle, ...(exportFormat === format ? activeFormatButtonStyle : {}) }}>
+                      {format.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 16 }}>
+                <div style={fieldLabelStyle}>{language === 'ko' ? '분할' : 'SPLIT'}</div>
+                <div style={formatGridStyle}>
+                  {(['all', 'train', 'val', 'test'] as const).map((split) => (
+                    <button key={split} onClick={() => setExportSplit(split)} style={{ ...formatButtonStyle, ...(exportSplit === split ? activeFormatButtonStyle : {}) }}>
+                      {split === 'all' ? text.filters.all : splitLabel(split)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18, fontSize: 13, color: 'var(--text-primary)' }}>
+                <input type="checkbox" checked={includeImages} disabled={hasAugSelection} onChange={(e) => setIncludeImages(e.target.checked)} />
+                {text.includeImages}
+              </label>
+              {hasAugSelection && (
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>{text.exportImagesForced}</div>
+              )}
+
+              <div style={{ marginTop: 18 }}>
+                <div style={fieldLabelStyle}>{text.outputDir}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ ...inputStyle, flex: 1, display: 'flex', alignItems: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {outputDir || text.outputDir}
+                  </div>
+                  <button onClick={handlePickOutputDir} style={secondaryButtonStyle}>{text.browse}</button>
+                </div>
+              </div>
+
+              {exportError && <div style={{ marginTop: 14, fontSize: 12, color: '#dc2626' }}>{exportError}</div>}
+              {exportResult && <div style={{ marginTop: 14, fontSize: 12, color: 'var(--success)' }}>{text.exportDone}</div>}
+
+              <div style={{ marginTop: 18 }}>
+                <button onClick={handleExport} disabled={isExporting} style={primaryButtonWideStyle}>
+                  {isExporting ? `${text.exportVersions}...` : text.exportVersions}
+                </button>
+              </div>
+            </div>
+
+            <div style={panelStyle}>
+              <div style={panelTitleStyle}>{text.exportTitle}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {versions.map((version) => (
+                  <div key={version.id} style={{ padding: '12px 12px', borderRadius: 12, background: selectedExportIds.includes(version.id) ? 'rgba(var(--accent-rgb),0.12)' : 'var(--bg-tertiary)', border: `1px solid ${selectedExportIds.includes(version.id) ? 'rgba(var(--accent-rgb),0.38)' : 'var(--border)'}` }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                      <input type="checkbox" checked={selectedExportIds.includes(version.id)} onChange={() => handleToggleExportVersion(version.id)} style={{ marginTop: 2 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{version.name}</span>
+                          <Badge color={version.kind === 'raw' ? '#64748b' : 'var(--accent)'} label={version.kind === 'raw' ? text.rawTag : `${version.multiplier}x`} subtle />
+                        </div>
+                        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                          {version.kind === 'raw'
+                            ? (language === 'ko' ? '원본 그대로 내보냅니다.' : 'Exports the dataset without version processing.')
+                            : summarizeRecipe(version.recipe, language)}
+                        </div>
+                      </div>
+                      {version.kind === 'augmented' && (
+                        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                          <button onClick={() => handleEditVersion(version)} style={secondaryButtonStyle}>{text.edit}</button>
+                          <button onClick={() => handleDeleteVersion(version.id)} style={dangerButtonStyle}>{text.delete}</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {exportResult && (
+                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {exportResult.results.map((result) => (
+                    <div key={result.version_id} style={exportResultCardStyle}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{result.version_name}</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>{`${result.file_count} files · ${result.annotation_count} annotations`}</div>
+                      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)', wordBreak: 'break-all' }}>{result.output_path}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showAutoSplit && (
+        <AutoSplitDialog
+          totalImages={summary.total_images}
+          onClose={() => setShowAutoSplit(false)}
+          onComplete={async () => {
+            await loadWorkspace()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function SplitPieChart({ entries, splitLabel, language }: { entries: FinishSummary['by_split']; splitLabel: (split: SplitType) => string; language: 'en' | 'ko' }) {
+  const total = entries.reduce((sum, entry) => sum + entry.total, 0)
+  const safeTotal = total === 0 ? 1 : total
+  let offset = 0
+  const segments = entries.map((entry) => {
+    const start = (offset / safeTotal) * 100
+    offset += entry.total
+    const end = (offset / safeTotal) * 100
+    return `${getSplitColor(entry.split)} ${start}% ${end}%`
+  })
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 18, alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{ position: 'relative', width: 190, height: 190 }}>
+          <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: `conic-gradient(${segments.join(', ')})`, border: '1px solid var(--border)' }} />
+          <div style={{ position: 'absolute', inset: 26, borderRadius: '50%', background: 'var(--bg-secondary)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+            <div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)' }}>{total}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.08em' }}>{language === 'ko' ? '전체' : 'TOTAL'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {entries.map((entry) => {
+          const percent = total === 0 ? 0 : (entry.total / total) * 100
+          return (
+            <div key={entry.split} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center', padding: '10px 12px', borderRadius: 12, background: 'var(--bg-tertiary)', border: '1px solid var(--border)' }}>
+              <span style={{ width: 10, height: 10, borderRadius: 999, background: getSplitColor(entry.split) }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{splitLabel(entry.split)}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{language === 'ko' ? `준비 완료 ${entry.ready}` : `${entry.ready} ready`}</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: getSplitColor(entry.split) }}>{percent.toFixed(0)}%</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{entry.total}</div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function TechniqueCard({
+  title,
+  description,
+  checked,
+  onToggle,
+  preview,
+  children,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onToggle: () => void
+  preview: ReactNode
+  children?: ReactNode
+}) {
+  return (
+    <div style={{ ...techniqueCardStyle, opacity: checked ? 1 : 0.88 }}>
+      <div style={techniquePreviewShellStyle}>{preview}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <input type="checkbox" checked={checked} onChange={onToggle} style={{ marginTop: 3 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>{title}</div>
+          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>{description}</div>
+        </div>
+      </div>
+      {children && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>}
+    </div>
+  )
+}
+
+function CenteredSlider({
+  label,
+  value,
+  max,
+  step,
+  disabled,
+  display,
+  onChange,
+}: {
+  label: string
+  value: number
+  max: number
+  step: number
+  disabled: boolean
+  display: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={fieldLabelStyle}>{label}</span>
+        <span style={{ fontSize: 12, color: disabled ? 'var(--text-muted)' : 'var(--text-primary)' }}>{display}</span>
+      </div>
+      <input
+        type="range"
+        min={-max}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ width: '100%', accentColor: 'var(--accent)' }}
+      />
+    </div>
+  )
+}
+
+function OptionChips({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <span style={fieldLabelStyle}>{label}</span>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {options.map((option) => (
+          <button
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            disabled={disabled}
+            style={{
+              ...chipStyle,
+              ...(value === option.value ? activeChipStyle : {}),
+              opacity: disabled ? 0.55 : 1,
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SubCheck({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: disabled ? 'var(--text-muted)' : 'var(--text-primary)', opacity: disabled ? 0.6 : 1 }}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <span style={{ fontSize: 12, fontWeight: 700 }}>{label}</span>
+    </label>
+  )
+}
+
+function buildPreview(kind: string, recipe: AugmentationRecipe, previewImageUrl: string, previewLabel: string, emptyText: string): ReactNode {
+  if (!previewImageUrl) {
+    return <div style={techniquePreviewEmptyStyle}>{emptyText}</div>
+  }
+
+  const preview = getPreviewConfig(kind, recipe)
+  return (
+    <>
+      <div style={{ ...techniquePreviewBackdropStyle, ...preview.shellStyle }} />
+      <img src={previewImageUrl} alt={previewLabel || kind} style={{ ...techniquePreviewImageStyle, ...preview.imageStyle }} />
+      {preview.overlay}
+      <div style={techniquePreviewOverlayStyle}>{previewLabel || kind}</div>
+    </>
+  )
+}
+
+function getPreviewConfig(kind: string, recipe: AugmentationRecipe): { imageStyle?: CSSProperties; shellStyle?: CSSProperties; overlay?: ReactNode } {
+  const shared: { imageStyle?: CSSProperties; shellStyle?: CSSProperties; overlay?: ReactNode } = {
+    imageStyle: {},
+    shellStyle: {},
+  }
+
+  if (kind === 'tiling' && recipe.tiling_enabled) {
+    shared.overlay = (
+      <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.45) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.45) 1px, transparent 1px)', backgroundSize: '33.333% 33.333%', pointerEvents: 'none' }} />
+    )
+  }
+
+  if (kind === 'auto_orient' && recipe.auto_orient_enabled) {
+    shared.imageStyle = { transform: 'rotate(-3deg) scale(0.94)' }
+  }
+
+  if (kind === 'isolate_objects' && recipe.isolate_objects_enabled) {
+    shared.imageStyle = { transform: 'scale(1.5)', objectPosition: 'center 28%' }
+    shared.overlay = <div style={{ position: 'absolute', inset: 18, border: '2px dashed rgba(255,255,255,0.75)', borderRadius: 18, pointerEvents: 'none' }} />
+  }
+
+  if (kind === 'resize' && recipe.resize_enabled) {
+    shared.imageStyle = {
+      objectFit: recipe.resize_mode === 'stretch' ? 'fill' : 'contain',
+      background: recipe.resize_mode === 'white_edges' ? '#ffffff' : '#000000',
+      padding: recipe.resize_mode === 'stretch' ? 0 : 10,
+    }
+    shared.shellStyle = { background: recipe.resize_mode === 'white_edges' ? '#ffffff' : '#000000' }
+  }
+
+  if (kind === 'grayscale' && recipe.grayscale_enabled) {
+    shared.imageStyle = { filter: 'grayscale(1)' }
+  }
+
+  if (kind === 'adjust_contrast' && recipe.adjust_contrast_enabled) {
+    shared.imageStyle = {
+      filter: recipe.adjust_contrast_mode === 'equalize' ? 'contrast(1.2) saturate(1.05)' : 'contrast(1.45)',
+    }
+  }
+
+  if (kind === 'horizontal_flip' && recipe.horizontal_flip_enabled) {
+    shared.imageStyle = { transform: 'scaleX(-1)' }
+  }
+
+  if (kind === 'vertical_flip' && recipe.vertical_flip_enabled) {
+    shared.imageStyle = { transform: 'scaleY(-1)' }
+  }
+
+  if (kind === 'rotate' && (recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled)) {
+    shared.imageStyle = { transform: recipe.rotate_cw90_enabled ? 'rotate(90deg) scale(0.86)' : 'rotate(-90deg) scale(0.86)' }
+  }
+
+  if (kind === 'shear' && recipe.shear_enabled) {
+    shared.imageStyle = { transform: `skewX(${Math.max(-14, Math.min(14, recipe.shear_range))}deg)` }
+  }
+
+  if (kind === 'brightness' && recipe.brightness_enabled) {
+    shared.imageStyle = { filter: `brightness(${1 + Math.abs(recipe.brightness_range)})` }
+  }
+
+  if (kind === 'contrast' && recipe.contrast_enabled) {
+    shared.imageStyle = { filter: `contrast(${1 + Math.abs(recipe.contrast_range)})` }
+  }
+
+  if (kind === 'saturation' && recipe.saturation_enabled) {
+    shared.imageStyle = { filter: `saturate(${1 + Math.abs(recipe.saturation_range)})` }
+  }
+
+  if (kind === 'hue' && recipe.hue_enabled) {
+    shared.imageStyle = { filter: `hue-rotate(${Math.abs(recipe.hue_range)}deg)` }
+  }
+
+  if (kind === 'blur' && recipe.blur_enabled) {
+    shared.imageStyle = { filter: `blur(${Math.min(2.8, Math.abs(recipe.blur_range))}px)` }
+  }
+
+  return shared
+}
+
+function summarizeRecipe(recipe: AugmentationRecipe | null, language: 'en' | 'ko'): string {
+  if (!recipe) return language === 'ko' ? '원본 데이터셋' : 'Raw dataset'
+
+  const parts: string[] = []
+  if (recipe.auto_orient_enabled) parts.push(language === 'ko' ? '자동 방향 보정' : 'Auto-Orient')
+  if (recipe.resize_enabled) parts.push(`${language === 'ko' ? '리사이즈' : 'Resize'} ${recipe.resize_size}x${recipe.resize_size}`)
+  if (recipe.grayscale_enabled) parts.push(language === 'ko' ? '흑백 변환' : 'Grayscale')
+  if (recipe.adjust_contrast_enabled) parts.push(language === 'ko'
+    ? (recipe.adjust_contrast_mode === 'equalize' ? '히스토그램 평활화' : '대비 스트레칭')
+    : (recipe.adjust_contrast_mode === 'equalize' ? 'Histogram EQ' : 'Contrast Stretch'))
+  if (recipe.horizontal_flip_enabled) parts.push('HFlip')
+  if (recipe.vertical_flip_enabled) parts.push('VFlip')
+  if (recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled) parts.push(language === 'ko' ? '회전' : 'Rotate')
+  if (recipe.shear_enabled && Math.abs(recipe.shear_range) > 0) parts.push(`${language === 'ko' ? '기울이기' : 'Shear'} +/-${Math.abs(recipe.shear_range).toFixed(0)}deg`)
+  if (recipe.brightness_enabled && Math.abs(recipe.brightness_range) > 0) parts.push(`${language === 'ko' ? '밝기' : 'Brightness'} +/-${Math.abs(recipe.brightness_range).toFixed(2)}`)
+  if (recipe.contrast_enabled && Math.abs(recipe.contrast_range) > 0) parts.push(`${language === 'ko' ? '대비' : 'Contrast'} +/-${Math.abs(recipe.contrast_range).toFixed(2)}`)
+  if (recipe.saturation_enabled && Math.abs(recipe.saturation_range) > 0) parts.push(`${language === 'ko' ? '채도' : 'Saturation'} +/-${Math.abs(recipe.saturation_range).toFixed(2)}`)
+  if (recipe.hue_enabled && Math.abs(recipe.hue_range) > 0) parts.push(`${language === 'ko' ? '색조' : 'Hue'} +/-${Math.abs(recipe.hue_range).toFixed(0)}deg`)
+  if (recipe.blur_enabled && Math.abs(recipe.blur_range) > 0) parts.push(`${language === 'ko' ? '블러' : 'Blur'} +/-${Math.abs(recipe.blur_range).toFixed(1)}`)
+  if (recipe.tiling_enabled) parts.push(language === 'ko' ? '타일링' : 'Tiling')
+  if (recipe.isolate_objects_enabled) parts.push(language === 'ko' ? '객체 분리' : 'Isolate Objects')
+  return parts.join(' · ')
+}
+
+function getIssueColor(code: FinishImageIssue['code']): string {
+  if (code === 'missing_annotations') return '#dc2626'
+  if (code === 'missing_labels') return '#b45309'
+  return 'var(--split-unassigned)'
+}
+
+function getStatusColor(status: Exclude<StatusFilter, 'all'>): string {
+  if (status === 'unlabeled') return 'var(--status-unlabeled)'
+  if (status === 'approved') return 'var(--status-approved)'
+  return 'var(--status-labeled)'
+}
+
+function getSplitColor(split: SplitType): string {
+  if (split === 'train') return 'var(--split-train)'
+  if (split === 'val') return 'var(--split-val)'
+  if (split === 'test') return 'var(--split-test)'
+  return 'var(--split-unassigned)'
+}
+
+function Badge({ color, label, subtle = false }: { color: string; label: string; subtle?: boolean }) {
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: subtle ? '4px 8px' : '5px 9px',
+      borderRadius: 999,
+      background: subtle ? 'rgba(255,255,255,0.04)' : `${color}18`,
+      border: `1px solid ${subtle ? 'rgba(255,255,255,0.08)' : `${color}55`}`,
+      color,
+      fontSize: 11,
+      fontWeight: 700,
+      whiteSpace: 'nowrap',
+    }}>
+      {label}
+    </span>
+  )
+}
+
+const loadingScreenStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: '100vh',
+  color: 'var(--text-muted)',
+}
+
+const finishHeaderStyle: CSSProperties = {
+  height: 48,
+  padding: '0 12px',
+  borderBottom: '1px solid var(--border)',
+  background: 'var(--bg-secondary)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  flexShrink: 0,
+}
+
+const finishBackButtonStyle: CSSProperties = {
+  minWidth: 146,
+  height: 30,
+  padding: '4px 10px',
+  borderRadius: 5,
+  color: 'var(--text-secondary)',
+  fontSize: 13,
+  background: 'none',
+  flexShrink: 0,
+}
+
+const finishBadgeStyle: CSSProperties = {
+  padding: '4px 10px',
+  borderRadius: 999,
+  background: 'rgba(var(--accent-rgb),0.12)',
+  border: '1px solid rgba(var(--accent-rgb),0.28)',
+  color: 'var(--accent)',
+  fontSize: 11,
+  fontWeight: 800,
+  whiteSpace: 'nowrap',
+}
+
+const finishIconButtonStyle: CSSProperties = {
+  width: 32,
+  height: 30,
+  borderRadius: 5,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-secondary)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexShrink: 0,
+}
+
+const panelStyle: CSSProperties = {
+  padding: 16,
+  borderRadius: 16,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-secondary)',
+}
+
+const panelTitleStyle: CSSProperties = {
+  fontSize: 16,
+  fontWeight: 800,
+  color: 'var(--text-primary)',
+  marginBottom: 10,
+}
+
+const bodyTextStyle: CSSProperties = {
+  fontSize: 13,
+  color: 'var(--text-secondary)',
+  lineHeight: 1.65,
+}
+
+const statGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+  gap: 12,
+}
+
+const statCardStyle: CSSProperties = {
+  padding: '18px 16px',
+  borderRadius: 16,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-secondary)',
+}
+
+const overviewGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1.15fr) minmax(320px, 0.85fr)',
+  gap: 16,
+}
+
+const accordionStyle: CSSProperties = {
+  borderRadius: 12,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+  overflow: 'hidden',
+}
+
+const blockerImageButtonStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '11px 12px',
+  borderRadius: 10,
+  background: 'var(--bg-secondary)',
+  border: '1px solid var(--border)',
+  textAlign: 'left',
+}
+
+const datasetHeaderStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '2.2fr 0.8fr 0.8fr 0.6fr 2fr 0.8fr',
+  padding: '12px 16px',
+  fontSize: 11,
+  fontWeight: 800,
+  color: 'var(--text-muted)',
+  borderBottom: '1px solid var(--border)',
+}
+
+const datasetRowStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '2.2fr 0.8fr 0.8fr 0.6fr 2fr 0.8fr',
+  gap: 10,
+  padding: '14px 16px',
+  alignItems: 'center',
+  borderBottom: '1px solid rgba(255,255,255,0.05)',
+}
+
+const stepTitleStyle: CSSProperties = {
+  fontSize: 14,
+  fontWeight: 800,
+  color: 'var(--text-primary)',
+  marginBottom: 6,
+}
+
+const techniqueGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+  gap: 14,
+  marginTop: 12,
+}
+
+const techniqueCardStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: 14,
+  borderRadius: 16,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+}
+
+const techniquePreviewShellStyle: CSSProperties = {
+  position: 'relative',
+  height: 164,
+  borderRadius: 12,
+  overflow: 'hidden',
+  background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.14), rgba(255,255,255,0.04))',
+  border: '1px solid rgba(255,255,255,0.08)',
+}
+
+const techniquePreviewBackdropStyle: CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.08), rgba(255,255,255,0.03))',
+}
+
+const techniquePreviewImageStyle: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  transition: 'transform 0.18s ease, filter 0.18s ease',
+}
+
+const techniquePreviewOverlayStyle: CSSProperties = {
+  position: 'absolute',
+  left: 10,
+  bottom: 10,
+  padding: '4px 8px',
+  borderRadius: 999,
+  background: 'rgba(0,0,0,0.58)',
+  color: 'white',
+  fontSize: 10,
+  fontWeight: 700,
+  maxWidth: 'calc(100% - 20px)',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+}
+
+const techniquePreviewEmptyStyle: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  textAlign: 'center',
+  padding: 16,
+  fontSize: 12,
+  lineHeight: 1.6,
+  color: 'var(--text-muted)',
+}
+
+const estimateCardStyle: CSSProperties = {
+  padding: '12px 14px',
+  borderRadius: 12,
+  background: 'var(--bg-tertiary)',
+  border: '1px solid var(--border)',
+}
+
+const fieldLabelStyle: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 800,
+  color: 'var(--text-muted)',
+  letterSpacing: '0.08em',
+}
+
+const inputStyle: CSSProperties = {
+  minHeight: 40,
+  padding: '9px 12px',
+  borderRadius: 10,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-primary)',
+  fontSize: 13,
+}
+
+const dualInputRowStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 28px 1fr',
+  gap: 8,
+  alignItems: 'center',
+}
+
+const resizeTimesStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 16,
+  fontWeight: 800,
+  color: 'var(--text-muted)',
+}
+
+const secondaryButtonStyle: CSSProperties = {
+  minHeight: 36,
+  padding: '8px 12px',
+  borderRadius: 10,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-primary)',
+  fontSize: 12,
+  fontWeight: 800,
+}
+
+const primaryGhostButtonStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  background: 'rgba(var(--accent-rgb),0.12)',
+  border: '1px solid rgba(var(--accent-rgb),0.32)',
+  color: 'var(--accent)',
+}
+
+const secondaryButtonWideStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  width: '100%',
+}
+
+const primaryButtonWideStyle: CSSProperties = {
+  ...primaryGhostButtonStyle,
+  width: '100%',
+  color: 'white',
+  background: 'var(--accent)',
+  border: 'none',
+}
+
+const chipStyle: CSSProperties = {
+  minHeight: 34,
+  padding: '8px 10px',
+  borderRadius: 10,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-secondary)',
+  color: 'var(--text-secondary)',
+  fontSize: 12,
+  fontWeight: 700,
+}
+
+const activeChipStyle: CSSProperties = {
+  background: 'rgba(var(--accent-rgb),0.12)',
+  border: '1px solid rgba(var(--accent-rgb),0.36)',
+  color: 'var(--accent)',
+}
+
+const dangerButtonStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  color: '#dc2626',
+  border: '1px solid rgba(220,38,38,0.2)',
+  background: 'rgba(220,38,38,0.08)',
+}
+
+const formatGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+  gap: 8,
+}
+
+const formatButtonStyle: CSSProperties = {
+  minHeight: 38,
+  borderRadius: 10,
+  border: '1px solid var(--border)',
+  background: 'var(--bg-tertiary)',
+  color: 'var(--text-secondary)',
+  fontSize: 12,
+  fontWeight: 800,
+}
+
+const activeFormatButtonStyle: CSSProperties = {
+  background: 'rgba(var(--accent-rgb),0.12)',
+  border: '1px solid rgba(var(--accent-rgb),0.34)',
+  color: 'var(--accent)',
+}
+
+const exportResultCardStyle: CSSProperties = {
+  padding: '12px 12px',
+  borderRadius: 10,
+  background: 'rgba(34,197,94,0.08)',
+  border: '1px solid rgba(34,197,94,0.22)',
+}

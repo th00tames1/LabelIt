@@ -5,6 +5,7 @@ import { registerLabelIpc } from './label.ipc'
 import { registerSettingsIpc } from './settings.ipc'
 import { registerExportIpc } from './export.ipc'
 import { registerYoloIpc } from './yolo.ipc'
+import { registerFinishIpc } from './finish.ipc'
 
 export function registerAllIpc(): void {
   registerProjectIpc()
@@ -14,4 +15,5 @@ export function registerAllIpc(): void {
   registerSettingsIpc()
   registerExportIpc()
   registerYoloIpc()
+  registerFinishIpc()
 }

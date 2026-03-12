@@ -9,6 +9,11 @@ function broadcastSettingsChanged(settings: AppSettings): void {
   }
 }
 
+function dispatchMenuAction(action: string): void {
+  const target = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  target?.webContents.send('menu:action', action)
+}
+
 export function refreshApplicationMenu(): void {
   const settings = getAppSettings()
 
@@ -59,9 +64,13 @@ export function refreshApplicationMenu(): void {
     {
       label: 'File',
       submenu: [
+        { label: 'New Project', click: () => dispatchMenuAction('new-project') },
+        { label: 'Open Project...', click: () => dispatchMenuAction('open-project') },
+        { label: 'Open Image Files...', click: () => dispatchMenuAction('open-image-files') },
+        { type: 'separator' },
         { role: 'close' },
         { type: 'separator' },
-        { role: 'quit', label: app.name },
+        { role: 'quit', label: 'Quit' },
       ],
     },
     {
@@ -81,7 +90,6 @@ export function refreshApplicationMenu(): void {
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
-        { role: 'toggleDevTools' },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -95,6 +103,10 @@ export function refreshApplicationMenu(): void {
         { label: 'Language', submenu: languageMenu },
         { label: 'AI Device', submenu: deviceMenu },
       ],
+    },
+    {
+      label: 'About',
+      click: () => dispatchMenuAction('about'),
     },
   ]
 

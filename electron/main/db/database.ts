@@ -78,7 +78,7 @@ function normalizeDatabaseOpenError(error: unknown): Error {
     || message.includes('wrong ELF class')
   ) {
     return new Error(
-      'LabelingTool could not load its local SQLite module for this OS.\n\n'
+      'LabelIt could not load its local SQLite module for this OS.\n\n'
       + 'Run `npm install` or `npm run native:fix` in the project root, then restart the app.'
     )
   }

@@ -1,4 +1,4 @@
-LabelingTool — Desktop Image Labeling Software
+LabelIt — Desktop Image Labeling Software
 Copyright (c) 2025
 
 This software is provided for personal and commercial use.

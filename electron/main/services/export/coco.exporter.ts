@@ -109,7 +109,7 @@ export async function exportToCOCO(options: COCOExportOptions): Promise<ExportRe
   }
 
   const coco = {
-    info: { version: '1.0', description: 'Exported from LabelingTool', date_created: new Date().toISOString() },
+    info: { version: '1.0', description: 'Exported from LabelIt', date_created: new Date().toISOString() },
     licenses: [],
     categories,
     images: cocoImages,

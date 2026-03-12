@@ -6,14 +6,14 @@ import { useI18n } from '../../../i18n'
 
 interface Props {
   onGoHome: () => void
-  onExport: () => void
+  onFinish: () => void
   onAutoSplit: () => void
   onAutoLabel: () => void
 }
 
 const CONTROL_HEIGHT = 30
 
-export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }: Props) {
+export default function TopBar({ onGoHome, onFinish, onAutoSplit, onAutoLabel }: Props) {
   const project = useProjectStore((s) => s.currentProject)
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject)
   const updateCurrentProjectName = useProjectStore((s) => s.updateCurrentProjectName)
@@ -162,8 +162,8 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           {t('topbar.autoSplit')}
         </button>
         <button
-          onClick={onExport}
-          title={t('topbar.exportTitle')}
+          onClick={onFinish}
+          title={t('topbar.finishTitle')}
           style={{
           width: 78, height: CONTROL_HEIGHT, padding: '4px 14px', borderRadius: 5, fontSize: 12, fontWeight: 600,
           background: 'var(--accent)', border: 'none',
@@ -171,7 +171,7 @@ export default function TopBar({ onGoHome, onExport, onAutoSplit, onAutoLabel }:
           flexShrink: 0,
         }}
         >
-          {t('topbar.export')}
+          {t('topbar.finish')}
         </button>
 
       {/* Help button */}

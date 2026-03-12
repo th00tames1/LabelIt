@@ -54,7 +54,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
         detections: '탐지 수',
         errors: '오류',
         autoCreated: '⚠ 자동 생성된 라벨 클래스: ',
-        reviewHint: '어노테이션은 yolo_auto로 표시됩니다. Annotations 패널에서 각각 승인 또는 거절하세요.',
+        reviewHint: '어노테이션은 yolo_auto로 표시됩니다. 라벨 패널에서 각각 승인 또는 거절하세요.',
         selected: `${batch.length}개 이미지 선택됨`,
         close: '닫기',
         run: '▶ 자동 라벨링 실행',
@@ -83,7 +83,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
         detections: 'Detections',
         errors: 'Errors',
         autoCreated: '⚠ Auto-created label classes: ',
-        reviewHint: 'Annotations are tagged as yolo_auto. Review them in the Annotations panel and accept or reject each one.',
+        reviewHint: 'Annotations are tagged as yolo_auto. Review them in the Labels panel and accept or reject each one.',
         selected: `${batch.length} image${batch.length !== 1 ? 's' : ''} selected`,
         close: 'Close',
         run: '▶ Run Auto Label',
@@ -325,9 +325,9 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
                   disabled={isRunning}
                   style={{
                     flex: 1, minHeight: 34, padding: '6px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                    background: target === t ? 'rgba(var(--accent-rgb),0.18)' : 'var(--bg-tertiary)',
+                    background: target === t ? 'var(--accent)' : 'var(--bg-tertiary)',
                     border: `1px solid ${target === t ? 'var(--accent)' : 'var(--border)'}`,
-                    color: target === t ? 'var(--accent)' : 'var(--text-secondary)',
+                    color: target === t ? 'white' : 'var(--text-secondary)',
                     cursor: isRunning ? 'not-allowed' : 'pointer',
                   }}
                 >

@@ -11,9 +11,18 @@ const api = {
     close: () => ipcRenderer.invoke('project:close'),
     getMeta: () => ipcRenderer.invoke('project:getMeta'),
     updateName: (name: string) => ipcRenderer.invoke('project:updateName', name),
+    renameRecent: (filePath: string, name: string) => ipcRenderer.invoke('project:renameRecent', filePath, name),
     listRecent: () => ipcRenderer.invoke('project:listRecent'),
     showOpenDialog: () => ipcRenderer.invoke('project:showOpenDialog'),
     showCreateDialog: () => ipcRenderer.invoke('project:showCreateDialog'),
+  },
+
+  menu: {
+    onAction: (callback: (action: string) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, action: string) => callback(action)
+      ipcRenderer.on('menu:action', listener)
+      return () => ipcRenderer.removeListener('menu:action', listener)
+    },
   },
 
   image: {
@@ -97,6 +106,15 @@ const api = {
     acceptOne: (annotationId: string) => ipcRenderer.invoke('yolo:acceptOne', annotationId),
     rejectAll: (imageId: string) => ipcRenderer.invoke('yolo:rejectAll', imageId),
     rejectOne: (annotationId: string) => ipcRenderer.invoke('yolo:rejectOne', annotationId),
+  },
+
+  finish: {
+    getSummary: () => ipcRenderer.invoke('finish:getSummary'),
+    listVersions: () => ipcRenderer.invoke('finish:listVersions'),
+    getDefaultRecipe: () => ipcRenderer.invoke('finish:getDefaultRecipe'),
+    saveVersion: (input: unknown) => ipcRenderer.invoke('finish:saveVersion', input),
+    deleteVersion: (id: string) => ipcRenderer.invoke('finish:deleteVersion', id),
+    exportVersions: (request: unknown) => ipcRenderer.invoke('finish:exportVersions', request),
   },
 }
 

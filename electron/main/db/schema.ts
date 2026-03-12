@@ -6,6 +6,11 @@ export type AnnotationType = 'bbox' | 'polygon' | 'polyline' | 'keypoints' | 'ma
 export type AnnotationSource = 'manual' | 'sam' | 'yolo_auto'
 export type AppLanguage = 'en' | 'ko'
 export type AIDeviceMode = 'auto' | 'gpu' | 'cpu'
+export type DatasetVersionKind = 'raw' | 'augmented'
+export type DatasetAugmentationPreset = 'custom' | 'roboflow_basic' | 'yolo_balanced' | 'lighting' | 'geometry'
+export type ExportFormat = 'yolo' | 'coco' | 'voc' | 'csv'
+export type ResizeMode = 'black_edges' | 'white_edges' | 'stretch'
+export type ContrastAdjustMode = 'stretch' | 'equalize'
 
 // ─── Geometry types (all coordinates normalized 0.0–1.0) ───────────────────
 
@@ -158,6 +163,107 @@ export interface ExportResult {
   output_path: string
   file_count: number
   annotation_count: number
+}
+
+export interface AugmentationRecipe {
+  tiling_enabled: boolean
+  auto_orient_enabled: boolean
+  isolate_objects_enabled: boolean
+  resize_enabled: boolean
+  resize_size: number
+  resize_mode: ResizeMode
+  grayscale_enabled: boolean
+  adjust_contrast_enabled: boolean
+  adjust_contrast_mode: ContrastAdjustMode
+  horizontal_flip_enabled: boolean
+  vertical_flip_enabled: boolean
+  rotate_cw90_enabled: boolean
+  rotate_cw270_enabled: boolean
+  shear_enabled: boolean
+  shear_range: number
+  brightness_enabled: boolean
+  brightness_range: number
+  contrast_enabled: boolean
+  contrast_range: number
+  saturation_enabled: boolean
+  saturation_range: number
+  hue_enabled: boolean
+  hue_range: number
+  blur_enabled: boolean
+  blur_range: number
+}
+
+export interface DatasetVersion {
+  id: string
+  name: string
+  kind: DatasetVersionKind
+  preset: DatasetAugmentationPreset
+  multiplier: number
+  apply_to: 'train'
+  recipe: AugmentationRecipe | null
+  created_at: number
+  updated_at: number
+}
+
+export interface DatasetVersionInput {
+  id?: string
+  name: string
+  preset: DatasetAugmentationPreset
+  multiplier: number
+  recipe: AugmentationRecipe
+}
+
+export interface FinishImageIssue {
+  code: 'missing_annotations' | 'missing_labels' | 'unassigned_split'
+  label: string
+}
+
+export interface FinishImageItem {
+  id: string
+  filename: string
+  status: ImageStatus
+  split: SplitType
+  annotation_count: number
+  ready: boolean
+  needs_review: boolean
+  issues: FinishImageIssue[]
+}
+
+export interface FinishSplitSummary {
+  split: SplitType
+  total: number
+  ready: number
+}
+
+export interface FinishSummary {
+  total_images: number
+  ready_images: number
+  unlabeled_images: number
+  in_progress_images: number
+  labeled_images: number
+  approved_images: number
+  unassigned_split_images: number
+  missing_label_images: number
+  empty_annotation_images: number
+  by_split: FinishSplitSummary[]
+  images: FinishImageItem[]
+}
+
+export interface VersionExportRequest {
+  version_ids: string[]
+  format: ExportFormat
+  output_dir: string
+  include_images: boolean
+  split?: SplitType
+}
+
+export interface VersionExportResult extends ExportResult {
+  version_id: string
+  version_name: string
+}
+
+export interface VersionExportBatchResult {
+  results: VersionExportResult[]
 }
 
 // ─── Export option types ────────────────────────────────────────────────────

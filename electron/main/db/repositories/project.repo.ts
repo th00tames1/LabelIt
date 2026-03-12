@@ -1,5 +1,7 @@
 import { getDatabase } from '../database'
-import type { ProjectMeta } from '../schema'
+import type { DatasetVersion, ProjectMeta } from '../schema'
+
+const DATASET_VERSIONS_KEY = 'dataset_versions'
 
 export function getProjectMeta(): ProjectMeta {
   const db = getDatabase()
@@ -29,4 +31,34 @@ export function initProjectMeta(name: string): void {
 
 export function setProjectName(name: string): void {
   getDatabase().prepare('INSERT OR REPLACE INTO project_meta (key, value) VALUES (?, ?)').run('name', name)
+}
+
+export function getProjectMetaValue(key: string): string | null {
+  const row = getDatabase()
+    .prepare('SELECT value FROM project_meta WHERE key = ?')
+    .get(key) as { value: string } | undefined
+  return row?.value ?? null
+}
+
+export function setProjectMetaValue(key: string, value: string): void {
+  getDatabase().prepare('INSERT OR REPLACE INTO project_meta (key, value) VALUES (?, ?)').run(key, value)
+}
+
+export function getDatasetVersions(): DatasetVersion[] {
+  const raw = getProjectMetaValue(DATASET_VERSIONS_KEY)
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      throw new Error('Stored dataset versions are not in the expected array format.')
+    }
+    return parsed as DatasetVersion[]
+  } catch {
+    throw new Error('Stored dataset versions are corrupted. Please repair the project metadata before continuing.')
+  }
+}
+
+export function setDatasetVersions(versions: DatasetVersion[]): void {
+  setProjectMetaValue(DATASET_VERSIONS_KEY, JSON.stringify(versions))
 }

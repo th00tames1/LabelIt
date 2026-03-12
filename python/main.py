@@ -1,5 +1,5 @@
 """
-LabelingTool AI Sidecar — FastAPI server running on localhost:7842
+LabelIt AI Sidecar — FastAPI server running on localhost:7842
 Provides SAM smart-polygon and YOLO auto-label endpoints.
 All models are lazy-loaded on first request to keep startup time < 2s.
 """
@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="LabelingTool AI Sidecar",
+    title="LabelIt AI Sidecar",
     version="1.0.0",
     lifespan=lifespan,
 )

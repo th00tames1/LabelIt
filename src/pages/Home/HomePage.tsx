@@ -1,23 +1,75 @@
-import { useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { projectApi } from '../../api/ipc'
 import { useProjectStore } from '../../store/projectStore'
+import { useSettingsStore } from '../../store/settingsStore'
 import type { RecentProject } from '../../types'
 import { useI18n } from '../../i18n'
 import LanguageSwitcher from '../../components/LanguageSwitcher'
 import ThemeSwitcher from '../../components/ThemeSwitcher'
+import labelItWhiteLogo from '../../assets/Labelit_White.svg'
+import labelItDarkLogo from '../../assets/Labelit_Dark.svg'
 
-export default function HomePage() {
+interface Props {
+  openCreateModalSignal?: number
+}
+
+export default function HomePage({ openCreateModalSignal = 0 }: Props) {
   const [showNewProject, setShowNewProject] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; project: RecentProject } | null>(null)
+  const [renameTarget, setRenameTarget] = useState<RecentProject | null>(null)
+  const [renameName, setRenameName] = useState('')
 
   const { recentProjects, setRecentProjects, setCurrentProject } = useProjectStore()
   const { t, formatDate } = useI18n()
+  const theme = useSettingsStore((s) => s.settings.theme)
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
+    if (theme === 'system') {
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+    }
+    return theme === 'light' ? 'light' : 'dark'
+  })
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: light)')
+    const syncTheme = () => {
+      if (theme === 'system') {
+        setResolvedTheme(media.matches ? 'light' : 'dark')
+      } else {
+        setResolvedTheme(theme === 'light' ? 'light' : 'dark')
+      }
+    }
+
+    syncTheme()
+    media.addEventListener('change', syncTheme)
+    return () => media.removeEventListener('change', syncTheme)
+  }, [theme])
+
+  const homeLogo = resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo
+  const visibleRecentProjects = useMemo(
+    () => [...recentProjects].sort((a, b) => b.last_opened - a.last_opened).slice(0, 2),
+    [recentProjects],
+  )
 
   useEffect(() => {
     projectApi.listRecent().then(setRecentProjects).catch(console.error)
   }, [setRecentProjects])
+
+  useEffect(() => {
+    if (openCreateModalSignal > 0) {
+      setShowNewProject(true)
+      setContextMenu(null)
+    }
+  }, [openCreateModalSignal])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const dismiss = () => setContextMenu(null)
+    window.addEventListener('click', dismiss)
+    return () => window.removeEventListener('click', dismiss)
+  }, [contextMenu])
 
   const handleNewProject = async () => {
     if (!projectName.trim()) return
@@ -52,6 +104,18 @@ export default function HomePage() {
     try {
       const meta = await projectApi.open(project.file_path)
       setCurrentProject(meta)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const handleRenameRecent = async () => {
+    if (!renameTarget || !renameName.trim()) return
+    try {
+      const recent = await projectApi.renameRecent(renameTarget.file_path, renameName.trim())
+      setRecentProjects(recent)
+      setRenameTarget(null)
+      setRenameName('')
     } catch (err) {
       setError((err as Error).message)
     }
@@ -110,22 +174,17 @@ export default function HomePage() {
           backdrop-filter: blur(10px);
         }
         .home-header {
+          display: flex;
+          justify-content: center;
           text-align: center;
-          margin-bottom: 36px;
+          margin-bottom: 28px;
         }
-        .home-header h1 {
-          font-size: clamp(42px, 7vw, 64px);
-          font-weight: 700;
-          color: var(--text-primary);
-          margin-bottom: 12px;
-          line-height: 1;
-        }
-        .home-header p {
-          color: var(--text-secondary);
-          font-size: 17px;
-          max-width: 520px;
+        .home-logo {
+          display: block;
+          width: min(288px, 61vw);
+          height: auto;
           margin: 0 auto;
-          line-height: 1.7;
+          filter: drop-shadow(0 18px 28px rgba(0,0,0,0.12));
         }
         .home-actions {
           display: flex;
@@ -263,6 +322,16 @@ export default function HomePage() {
           font-size: 13px;
           margin-top: 8px;
         }
+        .home-footer {
+          position: absolute;
+          left: 50%;
+          bottom: 16px;
+          transform: translateX(-50%);
+          font-size: 11px;
+          color: var(--text-muted);
+          letter-spacing: 0.04em;
+          white-space: nowrap;
+        }
         @media (max-width: 720px) {
           .home-page {
             padding: 20px;
@@ -272,7 +341,7 @@ export default function HomePage() {
             right: 16px;
           }
           .home-panel {
-            padding: 72px 22px 24px;
+            padding: 64px 22px 24px;
             border-radius: 20px;
           }
           .home-actions {
@@ -289,11 +358,10 @@ export default function HomePage() {
         <LanguageSwitcher />
       </div>
 
-      <div className="home-panel">
-        <div className="home-header">
-          <h1>LabelingTool</h1>
-          <p>{t('home.subtitle')}</p>
-        </div>
+        <div className="home-panel">
+          <div className="home-header">
+            <img className="home-logo" src={homeLogo} alt="LabelIt" />
+          </div>
 
         <div className="home-actions">
           <button className="btn-primary" onClick={() => setShowNewProject(true)}>
@@ -304,15 +372,19 @@ export default function HomePage() {
           </button>
         </div>
 
-        {recentProjects.length > 0 && (
+        {visibleRecentProjects.length > 0 && (
           <div className="recent-section">
             <h2>{t('home.recentProjects')}</h2>
             <div className="recent-grid">
-              {recentProjects.map((project) => (
+              {visibleRecentProjects.map((project) => (
                 <button
                   key={project.file_path}
                   className="recent-card"
                   onClick={() => handleOpenRecent(project)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setContextMenu({ x: e.clientX, y: e.clientY, project })
+                  }}
                 >
                   <div className="recent-card-name">{project.name}</div>
                   <div className="recent-card-meta">
@@ -329,6 +401,42 @@ export default function HomePage() {
 
         {error && <p className="error-text">{error}</p>}
       </div>
+
+      <div className="home-footer">Copyright © Heechan Jeong</div>
+
+      {contextMenu && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+          onClick={() => setContextMenu(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              left: contextMenu.x,
+              top: contextMenu.y,
+              minWidth: 160,
+              padding: 8,
+              borderRadius: 12,
+              background: 'var(--panel-floating)',
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            <button
+              className="btn-secondary"
+              style={{ minWidth: '100%', minHeight: 36, padding: '8px 10px', borderRadius: 8, justifyContent: 'flex-start' }}
+              onClick={() => {
+                setRenameTarget(contextMenu.project)
+                setRenameName(contextMenu.project.name)
+                setContextMenu(null)
+              }}
+            >
+              Rename
+            </button>
+          </div>
+        </div>
+      )}
 
       {showNewProject && (
         <div className="modal-overlay" onClick={() => setShowNewProject(false)}>
@@ -358,6 +466,26 @@ export default function HomePage() {
               >
                 {isCreating ? t('home.creating') : t('home.chooseFolder')}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renameTarget && (
+        <div className="modal-overlay" onClick={() => setRenameTarget(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Rename Project</h3>
+            <label>{t('home.projectName')}</label>
+            <input
+              type="text"
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleRenameRecent()}
+            />
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setRenameTarget(null)}>{t('common.cancel')}</button>
+              <button className="btn-primary" onClick={handleRenameRecent} disabled={!renameName.trim()}>Rename</button>
             </div>
           </div>
         </div>

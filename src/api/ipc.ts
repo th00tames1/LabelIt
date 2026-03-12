@@ -3,6 +3,8 @@ import type {
   Annotation, AnnotationGeometry, AnnotationType, AnnotationSource,
   Image, ImageStatus, SplitType, LabelClass, KeypointDefinition, KeypointSkeletonEdge,
   ProjectMeta, RecentProject, AppSettings,
+  AugmentationRecipe, DatasetVersion, DatasetVersionInput, FinishSummary,
+  VersionExportBatchResult, VersionExportRequest,
 } from '../types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,9 +48,15 @@ export const projectApi = {
   close: (): Promise<void> => api.project.close(),
   getMeta: (): Promise<ProjectMeta> => api.project.getMeta(),
   updateName: (name: string): Promise<ProjectMeta> => api.project.updateName(name),
+  renameRecent: (filePath: string, name: string): Promise<RecentProject[]> =>
+    api.project.renameRecent(filePath, name),
   listRecent: (): Promise<RecentProject[]> => api.project.listRecent(),
   showOpenDialog: (): Promise<string | null> => api.project.showOpenDialog(),
   showCreateDialog: (): Promise<string | null> => api.project.showCreateDialog(),
+}
+
+export const menuApi = {
+  onAction: (callback: (action: string) => void): (() => void) => api.menu.onAction(callback),
 }
 
 // ─── Image ────────────────────────────────────────────────────────────────────
@@ -215,4 +223,15 @@ export const yoloApi = {
     api.yolo.rejectAll(imageId),
   rejectOne: (annotationId: string): Promise<void> =>
     api.yolo.rejectOne(annotationId),
+}
+
+// ─── Finish Workspace ─────────────────────────────────────────────────────────
+export const finishApi = {
+  getSummary: (): Promise<FinishSummary> => api.finish.getSummary(),
+  listVersions: (): Promise<DatasetVersion[]> => api.finish.listVersions(),
+  getDefaultRecipe: (): Promise<AugmentationRecipe> => api.finish.getDefaultRecipe(),
+  saveVersion: (input: DatasetVersionInput): Promise<DatasetVersion> => api.finish.saveVersion(input),
+  deleteVersion: (id: string): Promise<void> => api.finish.deleteVersion(id),
+  exportVersions: (request: VersionExportRequest): Promise<VersionExportBatchResult> =>
+    api.finish.exportVersions(request),
 }

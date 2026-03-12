@@ -12,13 +12,14 @@ interface Props {
   onSelect: () => void
   onSelectAtPointer: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
+  defaultCursor: string
 }
 
 export default function BoundingBoxShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
   labelName,
-  onSelect, onSelectAtPointer, onUpdateGeometry,
+  onSelect, onSelectAtPointer, onUpdateGeometry, defaultCursor,
 }: Props) {
   const rectRef = useRef<Konva.Rect>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
@@ -92,7 +93,7 @@ export default function BoundingBoxShape({
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
         onMouseEnter={(e) => setCursor(e.target, isSelected ? 'move' : 'pointer')}
-        onMouseLeave={(e) => setCursor(e.target, 'crosshair')}
+        onMouseLeave={(e) => setCursor(e.target, defaultCursor)}
         perfectDrawEnabled={false}
       />
 

@@ -203,7 +203,7 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
   const updateImageInList = useImageStore((s) => s.updateImageInList)
   const setImporting = useUIStore((s) => s.setImporting)
   const isImporting = useUIStore((s) => s.isImporting)
-  const { t, statusLabel, splitLabel } = useI18n()
+  const { t, statusLabel, splitLabel, language } = useI18n()
   const dropRef = useRef<HTMLDivElement>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
   const [viewStatus, setViewStatus] = useState<ViewStatus>('all')
@@ -318,15 +318,16 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
       style={{
         display: 'flex', alignItems: 'center', gap: 7,
         width: '100%', padding: '5px 10px',
-        background: isCurrent ? 'rgba(var(--accent-rgb),0.14)' : 'transparent',
+        background: isCurrent ? 'rgba(var(--accent-rgb),0.18)' : 'transparent',
         border: 'none', cursor: 'pointer', textAlign: 'left',
-        color: isCurrent ? '#ffd7c5' : 'var(--text-secondary)',
+        color: isCurrent ? 'var(--text-primary)' : 'var(--text-secondary)',
+        fontWeight: isCurrent ? 700 : 500,
         fontSize: 12,
       }}
     >
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
       {label}
-      {isCurrent && <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.7 }}>✓</span>}
+      {isCurrent && <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--accent)' }}>✓</span>}
     </button>
   )
 
@@ -389,13 +390,8 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
           flexDirection: 'column',
           gap: 8,
         }}>
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', marginBottom: 4 }}>
-              {t('sidebar.viewTitle')}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              {`${viewStatus}/${viewSplit}`}
-            </div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+            {t('sidebar.viewTitle')}
           </div>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
@@ -407,7 +403,9 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
                 onChange={(e) => setViewStatus(e.target.value as ViewStatus)}
                 style={selectFieldStyle}
               >
-                <option value="all" style={{ background: '#ffffff', color: '#111111' }}>all</option>
+                <option value="all" style={{ background: '#ffffff', color: '#111111' }}>
+                  {language === 'ko' ? '전체 상태' : 'All statuses'}
+                </option>
                 {STATUS_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value} style={{ background: '#ffffff', color: '#111111' }}>
                     {statusLabel(option.value)}
@@ -428,7 +426,9 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
                 onChange={(e) => setViewSplit(e.target.value as ViewSplit)}
                 style={selectFieldStyle}
               >
-                <option value="all" style={{ background: '#ffffff', color: '#111111' }}>all</option>
+                <option value="all" style={{ background: '#ffffff', color: '#111111' }}>
+                  {language === 'ko' ? '전체 분할' : 'All splits'}
+                </option>
                 {SPLIT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value} style={{ background: '#ffffff', color: '#111111' }}>
                     {splitLabel(option.value)}
@@ -438,10 +438,6 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
               <span style={selectArrowStyle}>▾</span>
             </div>
           </label>
-
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-            {t('sidebar.advancedHint')}
-          </div>
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {`${imageCountText} / ${images.length}`}

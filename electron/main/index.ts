@@ -57,7 +57,7 @@ function createWindow(): BrowserWindow {
     show: false,
     frame: true,
     backgroundColor: '#0f0f0f',
-    title: 'LabelingTool',
+    title: 'LabelIt',
     // Use the generated icon for the window title bar (Windows taskbar)
     icon: is.dev
       ? join(__dirname, '../../resources/icon.ico')
@@ -117,7 +117,7 @@ function createWindow(): BrowserWindow {
 // ─── App Lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   // Set the Windows App User Model ID (for taskbar grouping + notifications)
-  electronApp.setAppUserModelId('com.labelingtool.app')
+  electronApp.setAppUserModelId('com.labelit.app')
 
   // ── Register localfile:// protocol handler ──────────────────────────────────
   // Reads local & UNC network files and returns them as a CORS-enabled Response.
@@ -144,7 +144,7 @@ app.whenReady().then(async () => {
         png: 'image/png', bmp: 'image/bmp',
         webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff',
       }
-      return new Response(data, {
+      return new Response(new Uint8Array(data), {
         headers: {
           'Content-Type': mime[ext] ?? 'application/octet-stream',
           ...CORS_HEADERS,
@@ -195,7 +195,7 @@ process.on('unhandledRejection', (reason) => {
     // In production: show error dialog only for critical errors
     dialog.showErrorBox(
       'Unexpected Error',
-      `LabelingTool encountered an unexpected error:\n\n${String(reason)}\n\nThe app will continue running.`,
+      `LabelIt encountered an unexpected error:\n\n${String(reason)}\n\nThe app will continue running.`,
     )
   }
 })

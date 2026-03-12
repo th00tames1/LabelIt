@@ -1,7 +1,7 @@
 {
-  "name": "labeling-tool",
+  "name": "labelit",
   "version": "1.0.0",
-  "description": "Fully local desktop image labeling tool (Roboflow Annotate alternative)",
+  "description": "Fully local desktop image annotation tool",
   "main": "./out/main/index.js",
   "author": "",
   "homepage": ".",
@@ -54,8 +54,8 @@
   },
   "build": {
     "appId": "com.labelingtool.app",
-    "productName": "LabelingTool",
-    "copyright": "Copyright © 2025 LabelingTool",
+    "productName": "LabelIt",
+    "copyright": "Copyright © 2025 LabelIt",
     "directories": {
       "output": "dist",
       "buildResources": "resources"
@@ -101,7 +101,7 @@
       "installerHeaderIcon": "resources/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "LabelingTool",
+      "shortcutName": "LabelIt",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "license": "resources/LICENSE.txt",

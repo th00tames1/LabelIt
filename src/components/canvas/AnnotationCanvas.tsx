@@ -619,6 +619,18 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
       ? 'crosshair'
       : 'default'
 
+  useEffect(() => {
+    const nextCursor = cursor
+    stageRef.current?.container().style.setProperty('cursor', nextCursor)
+    containerRef.current?.style.setProperty('cursor', nextCursor)
+  }, [annotations.length, cursor, selectedId])
+
+  useEffect(() => {
+    if (selectedId != null && !annotations.some((annotation) => annotation.id === selectedId)) {
+      setSelectedId(null)
+    }
+  }, [annotations, selectedId, setSelectedId])
+
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', cursor, position: 'relative' }}>
       <Stage
@@ -641,7 +653,23 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
               y={imgY}
               width={dispW}
               height={dispH}
-              listening={false}
+              listening={activeTool === 'select'}
+              draggable={activeTool === 'select'}
+              onClick={() => { if (activeTool === 'select') setSelectedId(null) }}
+              onDragStart={(e) => e.target.getStage()?.container().style.setProperty('cursor', 'grabbing')}
+              onDragMove={(e) => {
+                setImgX(e.target.x())
+                setImgY(e.target.y())
+              }}
+              onDragEnd={(e) => {
+                setImgX(e.target.x())
+                setImgY(e.target.y())
+                e.target.getStage()?.container().style.setProperty('cursor', 'grab')
+              }}
+              onMouseEnter={(e) => {
+                if (activeTool === 'select') e.target.getStage()?.container().style.setProperty('cursor', 'grab')
+              }}
+              onMouseLeave={(e) => e.target.getStage()?.container().style.setProperty('cursor', cursor)}
             />
           )}
         </Layer>
@@ -661,6 +689,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
               onSelect: () => setSelectedId(ann.id),
               onSelectAtPointer: () => handleAnnotationSelectionAtPointer(ann.id),
               onUpdateGeometry: (geo: AnnotationGeometry) => updateGeometry(ann.id, geo),
+              defaultCursor: cursor,
             }
 
             if (ann.annotation_type === 'bbox') {
@@ -778,8 +807,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
           bottom: 16,
           zIndex: 5,
           display: 'flex',
-          alignItems: 'stretch',
-          gap: 10,
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 8,
         }}
       >
         <div
@@ -839,9 +869,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
           onClick={toggleAnnotationsVisible}
           title={annotationsVisible ? t('topbar.hideAnnotations') : t('topbar.showAnnotations')}
           style={{
-            width: 44,
-            height: 44,
-            borderRadius: 12,
+            minWidth: 118,
+            height: 34,
+            borderRadius: 10,
             background: 'var(--panel-floating)',
             border: '1px solid var(--border)',
             color: annotationsVisible ? 'var(--text-secondary)' : 'var(--accent)',
@@ -850,7 +880,11 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            gap: 8,
+            padding: '0 12px',
             pointerEvents: 'auto',
+            fontSize: 11,
+            fontWeight: 700,
           }}
         >
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -858,6 +892,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             <circle cx="9" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.5" />
             {!annotationsVisible && <path d="M3 15L15 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}
           </svg>
+          <span>{annotationsVisible ? t('topbar.hideAnnotations') : t('topbar.showAnnotations')}</span>
         </button>
       </div>
 

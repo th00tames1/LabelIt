@@ -46,8 +46,9 @@ function Icon({ tool, active }: { tool: ToolType; active: boolean }) {
 
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-      <circle cx="9" cy="9" r="5.8" stroke={stroke} strokeWidth="1.6" />
-      <path d="M9 2.2V5.2M9 12.8V15.8M15.8 9H12.8M5.2 9H2.2" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M9 2.4L10.2 6.1L13.9 7.3L10.2 8.5L9 12.2L7.8 8.5L4.1 7.3L7.8 6.1L9 2.4Z" fill={stroke} />
+      <path d="M13.8 10.5L14.4 12.4L16.3 13L14.4 13.6L13.8 15.5L13.2 13.6L11.3 13L13.2 12.4L13.8 10.5Z" fill={stroke} opacity="0.9" />
+      <path d="M4.1 10.8L4.6 12.1L5.9 12.6L4.6 13.1L4.1 14.4L3.6 13.1L2.3 12.6L3.6 12.1L4.1 10.8Z" fill={stroke} opacity="0.85" />
     </svg>
   )
 }
@@ -64,7 +65,7 @@ export default function ToolRail() {
     { tool: 'bbox', label: t('topbar.bboxTool'), shortcut: 'W' },
     { tool: 'polygon', label: t('topbar.polygonTool'), shortcut: 'E' },
     { tool: 'keypoint', label: t('topbar.keypointTool'), shortcut: 'K' },
-    { tool: 'sam', label: 'SAM', shortcut: 'S' },
+    { tool: 'sam', label: t('topbar.smartPolygonTool'), shortcut: 'S' },
   ]
 
   return (

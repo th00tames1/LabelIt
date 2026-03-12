@@ -9,6 +9,7 @@ interface Props {
   onSelect: () => void
   onSelectAtPointer?: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
+  defaultCursor: string
 }
 
 const VISIBILITY_COLORS = ['transparent', '#ffaa00', '#ffffff']
@@ -16,7 +17,7 @@ const VISIBILITY_COLORS = ['transparent', '#ffaa00', '#ffffff']
 export default function KeypointShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
-  onSelect, onSelectAtPointer, onUpdateGeometry,
+  onSelect, onSelectAtPointer, onUpdateGeometry, defaultCursor,
 }: Props) {
   const geo = annotation.geometry as KeypointsGeometry
 
@@ -61,7 +62,7 @@ export default function KeypointShape({
             onClick={(e) => { e.cancelBubble = true; (onSelectAtPointer ?? onSelect)() }}
             onContextMenu={(e) => { e.evt.preventDefault(); handleKpRightClick(i) }}
             onMouseEnter={(e) => setCursor(e.target, 'pointer')}
-            onMouseLeave={(e) => setCursor(e.target, 'crosshair')}
+            onMouseLeave={(e) => setCursor(e.target, defaultCursor)}
             perfectDrawEnabled={false}
           />
         )

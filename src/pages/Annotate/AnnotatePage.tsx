@@ -12,7 +12,6 @@ import AnnotationCanvas from '../../components/canvas/AnnotationCanvas'
 import RightPanel from '../../components/layout/RightPanel/RightPanel'
 import CanvasErrorBoundary from '../../components/CanvasErrorBoundary'
 import ToolRail from '../../components/layout/ToolRail'
-import ExportDialog from '../../components/ExportDialog'
 import AutoSplitDialog from '../../components/AutoSplitDialog'
 import AutoLabelDialog from '../../components/AutoLabelDialog'
 import { useI18n } from '../../i18n'
@@ -20,6 +19,8 @@ import type { ToolType, RightPanelTab } from '../../types'
 
 interface Props {
   onGoHome: () => void
+  onFinish: () => void
+  menuImportSignal?: number
 }
 
 interface WorkflowNotice {
@@ -29,7 +30,7 @@ interface WorkflowNotice {
   targetTab?: RightPanelTab
 }
 
-export default function AnnotatePage({ onGoHome }: Props) {
+export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 }: Props) {
   const { images, setImages, activeImageId, setActiveImageId, updateImageInList } = useImageStore()
   const { labels, load: loadLabels } = useLabelStore()
   const { annotations, loadForImage, clear, selectedId, deleteAnnotation, duplicateAnnotation, undo, redo } =
@@ -40,7 +41,6 @@ export default function AnnotatePage({ onGoHome }: Props) {
     toggleAnnotationsVisible, showShortcutsHelp, setShowShortcutsHelp, setRightPanelTab,
   } = useUIStore()
   const { t } = useI18n()
-  const [showExport, setShowExport] = useState(false)
   const [showAutoSplit, setShowAutoSplit] = useState(false)
   const [showAutoLabel, setShowAutoLabel] = useState(false)
   // Quick-label popup: shown after drawing a new annotation
@@ -56,9 +56,11 @@ export default function AnnotatePage({ onGoHome }: Props) {
       ])
       setImages(imgs)
       if (imgs.length > 0) {
-        // Prefer first unlabeled image, fall back to first image
+        const preservedImage = activeImageId != null
+          ? imgs.find((img) => img.id === activeImageId) ?? null
+          : null
         const firstUnlabeled = imgs.find((img) => img.status === 'unlabeled')
-        const startImg = firstUnlabeled ?? imgs[0]
+        const startImg = preservedImage ?? firstUnlabeled ?? imgs[0]
         setActiveImageId(startImg.id)
         await loadForImage(startImg.id)
       }
@@ -89,6 +91,29 @@ export default function AnnotatePage({ onGoHome }: Props) {
     setActiveImageId(imageId)
     await loadForImage(imageId)
   }, [setActiveImageId, loadForImage])
+
+  useEffect(() => {
+    if (menuImportSignal === 0) return
+
+    const run = async () => {
+      const filePaths = await imageApi.showOpenDialog()
+      if (!filePaths || filePaths.length === 0) return
+
+      await imageApi.import(filePaths)
+      const nextImages = await imageApi.list()
+      setImages(nextImages)
+
+      if (nextImages.length === 0) return
+      const preserved = activeImageId != null
+        ? nextImages.find((image) => image.id === activeImageId) ?? null
+        : null
+      const target = preserved ?? nextImages[0]
+      setActiveImageId(target.id)
+      await loadForImage(target.id)
+    }
+
+    run().catch(console.error)
+  }, [menuImportSignal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const showCreateLabelNotice = useCallback(() => {
     setActiveTool('select')
@@ -198,7 +223,7 @@ export default function AnnotatePage({ onGoHome }: Props) {
           return
         }
 
-        // H: toggle annotation visibility
+        // H: toggle label visibility
         if (e.key === 'h' || e.key === 'H') {
           toggleAnnotationsVisible()
           return
@@ -277,7 +302,7 @@ export default function AnnotatePage({ onGoHome }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <TopBar
         onGoHome={onGoHome}
-        onExport={() => setShowExport(true)}
+        onFinish={onFinish}
         onAutoSplit={() => setShowAutoSplit(true)}
         onAutoLabel={() => setShowAutoLabel(true)}
       />
@@ -410,7 +435,6 @@ export default function AnnotatePage({ onGoHome }: Props) {
         <RightPanel />
       </div>
 
-      {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
       {showAutoLabel && (
         <AutoLabelDialog
           images={images}

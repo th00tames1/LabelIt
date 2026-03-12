@@ -24,14 +24,14 @@ const GROUPS = {
         ['W', 'Bounding box'],
         ['E', 'Polygon'],
         ['K', 'Keypoint'],
-        ['S', 'SAM AI segmentation'],
+        ['S', 'Smart Polygon'],
       ],
     },
     {
-      title: 'Label Selection',
+      title: 'Class Selection',
       rows: [
-        ['1 - 9', 'Quick-pick label classes by order'],
-        ['After drawing', 'Use the popup or number keys to assign a label'],
+        ['1 - 9', 'Quick-pick classes by order'],
+        ['After drawing', 'Use the popup or number keys to assign a class'],
       ],
     },
     {
@@ -58,12 +58,12 @@ const GROUPS = {
     {
       title: 'Visibility',
       rows: [
-        ['H', 'Toggle annotation visibility'],
+        ['H', 'Toggle label visibility'],
         ['?', 'Open or close this shortcuts help'],
       ],
     },
     {
-      title: 'SAM AI Tool',
+      title: 'Smart Polygon Tool',
       rows: [
         ['Left click', 'Positive point'],
         ['Right click', 'Negative point'],
@@ -88,14 +88,14 @@ const GROUPS = {
         ['W', '바운딩 박스'],
         ['E', '폴리곤'],
         ['K', '키포인트'],
-        ['S', 'SAM AI 세그멘테이션'],
+        ['S', '스마트 폴리곤'],
       ],
     },
     {
-      title: '라벨 선택',
+      title: '클래스 선택',
       rows: [
-        ['1 - 9', '순서대로 라벨 클래스 빠른 선택'],
-        ['그린 뒤 팝업', '팝업 또는 숫자키로 라벨 지정'],
+        ['1 - 9', '순서대로 클래스 빠른 선택'],
+        ['그린 뒤 팝업', '팝업 또는 숫자키로 클래스 지정'],
       ],
     },
     {
@@ -122,12 +122,12 @@ const GROUPS = {
     {
       title: '보기',
       rows: [
-        ['H', '어노테이션 표시 토글'],
+        ['H', '라벨 표시 토글'],
         ['?', '이 단축키 도움말 열기 / 닫기'],
       ],
     },
     {
-      title: 'SAM AI 도구',
+      title: '스마트 폴리곤 도구',
       rows: [
         ['왼쪽 클릭', '긍정 포인트'],
         ['오른쪽 클릭', '부정 포인트'],

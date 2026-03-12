@@ -86,12 +86,20 @@ export function autoSplit(ratios: SplitRatios): void {
   const total = images.length
   if (total === 0) return
 
+  const shuffled = [...images]
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1))
+    const current = shuffled[index]
+    shuffled[index] = shuffled[swapIndex]
+    shuffled[swapIndex] = current
+  }
+
   const trainCount = Math.round(total * ratios.train)
   const valCount = Math.round(total * ratios.val)
 
   const updateSplit = db.prepare('UPDATE images SET split = ? WHERE id = ?')
   const tx = db.transaction(() => {
-    images.forEach(({ id }, idx) => {
+    shuffled.forEach(({ id }, idx) => {
       let split: SplitType
       if (idx < trainCount) split = 'train'
       else if (idx < trainCount + valCount) split = 'val'

@@ -3,9 +3,9 @@
 SAM 3 Model Setup Script
 ========================
 SAM 3 (Segment Anything Model 3) by Meta AI — released November 2025.
-Ultralytics handles automatic model download on first use.
+The weights are not auto-downloaded; you need to place sam3.pt manually after approval.
 
-This script verifies/pre-downloads the SAM 3 model and prints setup instructions.
+This script verifies the SAM 3 model location and prints setup instructions.
 
 Usage:
   python scripts/download-models.py
@@ -53,53 +53,15 @@ elif os.path.exists(SAM3_ULTRALYTICS_CACHE):
 else:
     print("[INFO] SAM 3 model not found locally.")
     print()
-    print("The model will be downloaded automatically by Ultralytics on first use.")
+    print("The model is not present locally yet.")
     print("  Download size: ~3.4 GB")
-    print("  Download URL:  https://github.com/ultralytics/assets/releases/")
+    print("  Request access and download from: https://huggingface.co/facebook/sam3")
     print()
-    print("To pre-download now, run:")
+    print("Once approved, place the file here:")
     print()
-    print("  python -c \"from ultralytics import SAM; SAM('sam3.pt')\"")
+    print(f"  {SAM3_PATH}")
     print()
-    print("Or activate the Python venv first:")
-    print("  python\\Scripts\\activate")
-    print("  python -c \"from ultralytics import SAM; SAM('sam3.pt')\"")
-    print()
-    print("Then optionally copy to the project models directory for reproducibility:")
-    print(f"  copy %USERPROFILE%\\.ultralytics\\assets\\sam3.pt \"{SAM3_PATH}\"")
-    print()
-
-    # Offer auto-download
-    try:
-        answer = input("Download SAM 3 now? (requires internet) [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        answer = "n"
-
-    if answer == "y":
-        print()
-        print("Importing Ultralytics (this may install/update packages)...")
-        try:
-            from ultralytics import SAM  # noqa: F401
-            print("Triggering SAM 3 download via Ultralytics...")
-            model = SAM("sam3.pt")
-            del model
-            print()
-            print("[OK] SAM 3 downloaded successfully.")
-            # Copy to local models dir
-            if os.path.exists(SAM3_ULTRALYTICS_CACHE) and not os.path.exists(SAM3_PATH):
-                import shutil
-                shutil.copy2(SAM3_ULTRALYTICS_CACHE, SAM3_PATH)
-                print(f"[OK] Copied to: {SAM3_PATH}")
-        except ImportError:
-            print()
-            print("[ERROR] Ultralytics not installed. Run setup first:")
-            print("  scripts\\setup-python-env.bat")
-            sys.exit(1)
-        except Exception as e:
-            print(f"[ERROR] Download failed: {e}")
-            sys.exit(1)
-    else:
-        print("Skipped. SAM 3 will auto-download on first prediction.")
+    print("If you already downloaded it somewhere else, copy it into the project models directory.")
 
 print()
 print("=" * 60)

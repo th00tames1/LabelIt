@@ -44,7 +44,7 @@ async def predict(request: SAMPredictRequest):
             multimask=request.multimask,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SAM 3 inference error: {e}")
+        raise HTTPException(status_code=500, detail=f"SAM inference error: {e}")
 
     elapsed_ms = (time.perf_counter() - t0) * 1000
 

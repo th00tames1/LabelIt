@@ -63,19 +63,24 @@ class SAMService:
             predictor_module = importlib.import_module("ultralytics.models.sam")
             model_path = self._ensure_point_model_path()
             model_name = Path(model_path).name.lower()
-            predictor_ctor = getattr(
-                predictor_module,
-                "SAM2Predictor" if "sam2" in model_name else "Predictor",
+            predictor_name = (
+                "SAM3Predictor" if "sam3" in model_name
+                else "SAM2Predictor" if "sam2" in model_name
+                else "Predictor"
             )
+            predictor_ctor = getattr(predictor_module, predictor_name)
             self._predictor = predictor_ctor(overrides={
                 "conf": 0.25,
                 "task": "segment",
                 "mode": "predict",
                 "imgsz": 1024,
                 "model": model_path,
+                "compile": None,
+                "save": False,
+                "verbose": False,
             })
             runtime = self.get_runtime_info()
-            print(f"[SAM] Predictor loaded: {model_path} on {runtime['device_label']}")
+            print(f"[SAM] {predictor_name} loaded: {model_path} on {runtime['device_label']}")
         except Exception as e:
             raise RuntimeError(f"Failed to load interactive SAM predictor: {e}") from e
 

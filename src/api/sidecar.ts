@@ -5,7 +5,7 @@ import type { SidecarHealth, SidecarRuntimeInfo } from '../types'
 const BASE_URL = 'http://127.0.0.1:7842'
 
 async function post<T>(path: string, body: unknown, timeoutMs = 300_000): Promise<T> {
-  // SAM 3 on CPU can take 60–180s; 300s (5 min) timeout for large images/models
+  // Large SAM models on CPU can take 60–180s; 300s timeout for safety
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

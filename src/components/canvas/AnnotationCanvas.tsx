@@ -106,6 +106,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const [samLastRun, setSamLastRun] = useState<SamRunMeta | null>(null)
   const [samError, setSamError] = useState<string | null>(null)
   const [selectedSamPointIndex, setSelectedSamPointIndex] = useState<number | null>(null)
+  const [samSessionReady, setSamSessionReady] = useState(false)
+  const [samSessionPreparing, setSamSessionPreparing] = useState(false)
 
   const { annotations, selectedId, setSelectedId, createAnnotation, updateGeometry } =
     useAnnotationStore()
@@ -208,7 +210,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     return activeLabelClassId ?? labels[0]?.id ?? null
   }, [activeLabelClassId, labels])
 
-  // Convert loaded image to base64 for SAM inference
+  // Convert loaded image to base64 once for SAM session preparation
   const getImageBase64 = useCallback((): string | null => {
     if (!loadedImg) return null
     const canvas = document.createElement('canvas')
@@ -220,16 +222,39 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     return canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
   }, [loadedImg, image.width, image.height])
 
+  const prepareSAMSession = useCallback(async (force = false): Promise<boolean> => {
+    if (samSessionReady && !force) return true
+    const base64 = getImageBase64()
+    if (!base64) return false
+
+    setSamSessionPreparing(true)
+    try {
+      await sidecarClient.samPrepareSession({
+        image_key: image.id,
+        image_base64: base64,
+      })
+      setSamSessionReady(true)
+      return true
+    } catch (err) {
+      console.warn('SAM session prepare failed:', err)
+      setSamSessionReady(false)
+      setSamError(err instanceof Error ? err.message : String(err))
+      return false
+    } finally {
+      setSamSessionPreparing(false)
+    }
+  }, [getImageBase64, image.id, samSessionReady])
+
   // Run SAM prediction with current points (point-prompt mode)
   const runSAMPrediction = useCallback(async (points: SAMPoint[]) => {
     if (points.length === 0) { setSamContours(null); setSamError(null); return }
-    const base64 = getImageBase64()
-    if (!base64) return
+    const ready = await prepareSAMSession()
+    if (!ready) return
     setSamLoading(true)
     setSamError(null)
     try {
       const result = await sidecarClient.samPredict({
-        image_base64: base64,
+        image_key: image.id,
         points: points.map((p) => [p.x, p.y]),
         point_labels: points.map((p) => p.label),
         multimask: false,
@@ -249,7 +274,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     } finally {
       setSamLoading(false)
     }
-  }, [getImageBase64])
+  }, [image.id, prepareSAMSession])
 
   const removeSamPoint = useCallback((index: number) => {
     setSamPoints((current) => {
@@ -644,7 +669,13 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
   useEffect(() => {
     clearSAMState()
+    setSamSessionReady(false)
   }, [image.id, clearSAMState])
+
+  useEffect(() => {
+    if (!loadedImg || activeTool !== 'sam') return
+    prepareSAMSession(true).catch(console.error)
+  }, [activeTool, loadedImg, image.id, prepareSAMSession])
 
   // Escape cancels in-progress drawing; Enter finishes current polygon or commits SAM
   useEffect(() => {
@@ -1035,8 +1066,10 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
           {/* Status + commit row */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-              {samLoading
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              {samSessionPreparing
+                ? (language === 'ko' ? 'SAM 세션 준비 중...' : 'Preparing SAM session...')
+                : samLoading
                 ? (language === 'ko' ? 'SAM 실행 중 (CPU에서는 느릴 수 있음)...' : 'SAM running (may take longer on CPU)...')
                 : resolvedSamContours.length > 0
                 ? (language === 'ko'

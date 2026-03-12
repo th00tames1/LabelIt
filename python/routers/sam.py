@@ -10,11 +10,16 @@ router = APIRouter()
 
 
 class SAMPredictRequest(BaseModel):
-    image_base64: str
+    image_key: str
     points: list[list[float]]        # [[nx, ny], ...] normalized 0-1
     point_labels: list[int]          # 1=foreground, 0=background
     box: Optional[list[float]] = None   # [x1, y1, x2, y2] normalized, optional
-    multimask: bool = True
+    multimask: bool = False
+
+
+class SAMPrepareSessionRequest(BaseModel):
+    image_key: str
+    image_base64: str
 
 
 class SAMPredictResponse(BaseModel):
@@ -27,17 +32,12 @@ class SAMPredictResponse(BaseModel):
 
 @router.post("/predict", response_model=SAMPredictResponse)
 async def predict(request: SAMPredictRequest):
-    try:
-        image_bytes = base64.b64decode(request.image_base64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 image")
-
     mode = "point"
 
     t0 = time.perf_counter()
     try:
-        contours, score = sam_service.predict(
-            image_bytes=image_bytes,
+        contours, score = sam_service.predict_session(
+            image_key=request.image_key,
             points=request.points,
             point_labels=request.point_labels,
             box=request.box,
@@ -55,6 +55,24 @@ async def predict(request: SAMPredictRequest):
         mode=mode,
         runtime=sam_service.get_runtime_info(),
     )
+
+
+@router.post("/session")
+async def prepare_session(request: SAMPrepareSessionRequest):
+    try:
+        image_bytes = base64.b64decode(request.image_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image")
+
+    try:
+        runtime = sam_service.prepare_session(request.image_key, image_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SAM session error: {e}")
+
+    return {
+        "status": "ok",
+        "runtime": runtime,
+    }
 
 
 @router.post("/preload")

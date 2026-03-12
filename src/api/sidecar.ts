@@ -17,11 +17,16 @@ async function post<T>(path: string, body: unknown, timeoutMs = 300_000): Promis
 }
 
 export interface SAMPredictRequest {
-  image_base64: string
+  image_key: string
   points: [number, number][]
   point_labels: (0 | 1)[]
   box?: [number, number, number, number] | null
   multimask?: boolean
+}
+
+export interface SAMPrepareSessionRequest {
+  image_key: string
+  image_base64: string
 }
 
 export interface SAMPredictResponse {
@@ -63,6 +68,9 @@ export const sidecarClient = {
 
   samPredict: (req: SAMPredictRequest): Promise<SAMPredictResponse> =>
     post('/sam/predict', req),
+
+  samPrepareSession: (req: SAMPrepareSessionRequest): Promise<{ status: string; runtime: SidecarRuntimeInfo }> =>
+    post('/sam/session', req),
 
   yoloDetect: (req: YOLODetectRequest): Promise<YOLODetectResponse> =>
     post('/yolo/detect', req),

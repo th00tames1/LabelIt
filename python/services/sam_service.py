@@ -2,8 +2,8 @@
 
 """Segment Anything service via Ultralytics.
 
-Point prompts use local `sam3.pt` when available and fall back to an auto-downloading
-`sam2.1_b.pt` checkpoint so click-based segmentation works out of the box.
+This service keeps a cached image session using Ultralytics' SAMPredictor.set_image(),
+so repeated point prompts reuse the image embedding instead of recomputing it.
 """
 
 import io
@@ -11,17 +11,21 @@ import importlib
 import os
 import shutil
 from pathlib import Path
+from typing import Any
+
 import numpy as np
 from PIL import Image as PILImage
-from typing import Any
+
 from services.runtime_service import get_runtime_info as detect_runtime_info
 from utils.mask_utils import mask_to_contours
 
 
 class SAMService:
     def __init__(self):
-        self._model: Any | None = None
+        self._predictor: Any | None = None
         self._runtime_info = None
+        self._session_key: str | None = None
+        self._session_size: tuple[int, int] | None = None
         self._models_dir = Path(os.path.dirname(__file__)).resolve().parent / "models"
         self._sam3_local_path = self._models_dir / "sam3.pt"
         self._sam2_local_path = self._models_dir / "sam2.1_b.pt"
@@ -43,105 +47,109 @@ class SAMService:
         raise RuntimeError("SAM point model is unavailable.")
 
     def get_runtime_info(self):
-        if self._runtime_info is not None:
-            return {
-                **self._runtime_info,
-                "sam_model_loaded": self._model is not None,
-                "sam_text_model_loaded": False,
-            }
-
-        info = detect_runtime_info()
-        self._runtime_info = info
+        if self._runtime_info is None:
+            self._runtime_info = detect_runtime_info()
         return {
-            **info,
-            "sam_model_loaded": self._model is not None,
+            **self._runtime_info,
+            "sam_model_loaded": self._predictor is not None,
             "sam_text_model_loaded": False,
         }
 
-    # ── Model Loading ────────────────────────────────────────────────────────
-
     def _load_point_model(self):
-        """Load interactive point/box prompt model."""
-        if self._model is not None:
+        if self._predictor is not None:
             return
+
         try:
-            ultralytics = importlib.import_module("ultralytics")
-            sam_ctor = getattr(ultralytics, "SAM")
+            predictor_module = importlib.import_module("ultralytics.models.sam")
             model_path = self._ensure_point_model_path()
-            self._model = sam_ctor(model_path)
+            model_name = Path(model_path).name.lower()
+            predictor_ctor = getattr(
+                predictor_module,
+                "SAM2Predictor" if "sam2" in model_name else "Predictor",
+            )
+            self._predictor = predictor_ctor(overrides={
+                "conf": 0.25,
+                "task": "segment",
+                "mode": "predict",
+                "imgsz": 1024,
+                "model": model_path,
+            })
             runtime = self.get_runtime_info()
-            print(f"[SAM] Point model loaded: {model_path} on {runtime['device_label']}")
+            print(f"[SAM] Predictor loaded: {model_path} on {runtime['device_label']}")
         except Exception as e:
-            raise RuntimeError(f"Failed to load interactive SAM model: {e}") from e
+            raise RuntimeError(f"Failed to load interactive SAM predictor: {e}") from e
+
+    def _decode_image(self, image_bytes: bytes) -> tuple[np.ndarray, int, int]:
+        image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+        img_w, img_h = image.size
+        return np.array(image), img_w, img_h
 
     def preload(self):
-        """Warm the interactive model without running inference."""
         self._load_point_model()
 
-    # ── Public API ───────────────────────────────────────────────────────────
+    def prepare_session(self, image_key: str, image_bytes: bytes):
+        self._load_point_model()
+        predictor = self._predictor
+        if predictor is None:
+            raise RuntimeError("SAM predictor is not available")
 
-    def predict(
+        if self._session_key == image_key and getattr(predictor, "features", None) is not None:
+            return self.get_runtime_info()
+
+        img_array, img_w, img_h = self._decode_image(image_bytes)
+
+        try:
+            predictor.reset_image()
+            predictor.set_image(img_array)
+        except Exception as e:
+            self._session_key = None
+            self._session_size = None
+            raise RuntimeError(f"Failed to prepare SAM image session: {e}") from e
+
+        self._session_key = image_key
+        self._session_size = (img_w, img_h)
+        return self.get_runtime_info()
+
+    def predict_session(
         self,
-        image_bytes: bytes,
+        image_key: str,
         points: list,
         point_labels: list,
         box=None,
-        multimask: bool = True,
+        multimask: bool = False,
     ):
-        """
-        Run SAM point-prompt inference.
-
-        Returns:
-            (contours, score)
-            contours: list of polygons, each polygon = list of [nx, ny] normalized 0-1
-            score:    confidence float 0-1
-        """
-        _ = multimask
-        image = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
-        img_w, img_h = image.size
-        img_array = np.array(image)
-        return self._predict_points(img_array, img_w, img_h, points, point_labels, box, multimask)
-
-    # ── Point / Box Prompt Mode ──────────────────────────────────────────────
-
-    def _predict_points(self, img_array, img_w, img_h, points, point_labels, box, multimask):
         self._load_point_model()
-        runtime = self.get_runtime_info()
-        model = self._model
-        if model is None:
-            raise RuntimeError("SAM 3 point model is not available")
+        predictor = self._predictor
+        if predictor is None:
+            raise RuntimeError("SAM predictor is not available")
+        if self._session_key != image_key or self._session_size is None:
+            raise RuntimeError("SAM image session is not prepared")
 
-        # Convert normalized coords to pixel coords for Ultralytics
+        img_w, img_h = self._session_size
         abs_points = [[int(p[0] * img_w), int(p[1] * img_h)] for p in points]
         abs_box = None
         if box is not None:
             abs_box = [[
-                box[0] * img_w, box[1] * img_h,
-                box[2] * img_w, box[3] * img_h,
+                box[0] * img_w,
+                box[1] * img_h,
+                box[2] * img_w,
+                box[3] * img_h,
             ]]
 
         try:
-            results = model.predict(
-                source=img_array,
+            results = predictor(
                 points=[abs_points] if abs_points else None,
                 labels=[point_labels] if point_labels else None,
                 bboxes=abs_box,
-                device=runtime["device"],
-                verbose=False,
+                multimask_output=multimask,
+                source=None,
             )
         except Exception as e:
-            raise RuntimeError(f"SAM 3 point inference failed: {e}") from e
+            raise RuntimeError(f"SAM prompt inference failed: {e}") from e
 
         return self._parse_results(results, img_w, img_h, multimask)
 
-    # ── Result Parsing ────────────────────────────────────────────────────────
-
     def _parse_results(self, results, img_w, img_h, multimask):
-        """
-        Convert Ultralytics Result objects to normalized contours.
-        Prefer binary mask -> OpenCV contour extraction for stable point ordering,
-        then fall back to Ultralytics masks.xy when needed.
-        """
         if not results or results[0].masks is None:
             return [], 0.0
 
@@ -155,7 +163,6 @@ class SAMService:
         except Exception:
             scores = []
 
-        # Path A: masks.data (binary tensors -> compute contours via OpenCV)
         if hasattr(result.masks, "data") and result.masks.data is not None:
             for index, mask_tensor in enumerate(result.masks.data):
                 mask_np = mask_tensor.cpu().numpy()
@@ -172,15 +179,11 @@ class SAMService:
                         "score": scores[index] if index < len(scores) else 0.0,
                     })
 
-        # Path B: masks.xy (pre-computed polygon contours)
         if not mask_candidates and hasattr(result.masks, "xy") and result.masks.xy is not None:
             for index, mask_xy in enumerate(result.masks.xy):
                 if len(mask_xy) < 3:
                     continue
-                norm_contour = [
-                    [float(pt[0]) / img_w, float(pt[1]) / img_h]
-                    for pt in mask_xy
-                ]
+                norm_contour = [[float(pt[0]) / img_w, float(pt[1]) / img_h] for pt in mask_xy]
                 mask_candidates.append({
                     "contours": [norm_contour],
                     "score": scores[index] if index < len(scores) else 0.0,
@@ -210,11 +213,15 @@ class SAMService:
             total += x1 * y2 - x2 * y1
         return abs(total) / 2.0
 
-    # ── Lifecycle ─────────────────────────────────────────────────────────────
-
     def unload(self):
-        """Release model from memory (called on sidecar shutdown)."""
-        self._model = None
+        if self._predictor is not None:
+            try:
+                self._predictor.reset_image()
+            except Exception:
+                pass
+        self._predictor = None
+        self._session_key = None
+        self._session_size = None
 
 
 sam_service = SAMService()

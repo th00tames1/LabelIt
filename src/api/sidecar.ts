@@ -29,6 +29,10 @@ export interface SAMPrepareSessionRequest {
   image_base64: string
 }
 
+export interface SAMModelRequest {
+  model_name: 'sam2.1' | 'sam3'
+}
+
 export interface SAMPredictResponse {
   candidates?: {
     contours: [number, number][][]
@@ -76,6 +80,9 @@ export const sidecarClient = {
 
   samPrepareSession: (req: SAMPrepareSessionRequest): Promise<{ status: string; runtime: SidecarRuntimeInfo }> =>
     post('/sam/session', req),
+
+  samSetModel: (req: SAMModelRequest): Promise<{ status: string; runtime: SidecarRuntimeInfo }> =>
+    post('/sam/model', req),
 
   yoloDetect: (req: YOLODetectRequest): Promise<YOLODetectResponse> =>
     post('/yolo/detect', req),

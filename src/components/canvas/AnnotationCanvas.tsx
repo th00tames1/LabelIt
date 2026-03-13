@@ -74,6 +74,15 @@ interface SAMCandidate {
   area: number
 }
 
+const spinnerStyle: CSSProperties = {
+  width: 14,
+  height: 14,
+  borderRadius: '50%',
+  border: '2px solid rgba(255,255,255,0.18)',
+  borderTopColor: 'var(--accent)',
+  animation: 'spin 0.8s linear infinite',
+}
+
 interface SamRunMeta {
   processingTimeMs: number
   mode: 'point'
@@ -120,7 +129,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const { annotations, selectedId, setSelectedId, createAnnotation, updateGeometry } =
     useAnnotationStore()
   const { labels } = useLabelStore()
-  const { activeLabelClassId, annotationsVisible, sidecarOnline, sidecarRuntime, toggleAnnotationsVisible } = useUIStore()
+  const { activeLabelClassId, annotationsVisible, sidecarOnline, sidecarRuntime, setSidecarRuntime, toggleAnnotationsVisible } = useUIStore()
   const { language, t } = useI18n()
 
   // Wrapper: create annotation and notify parent for label quick-pick
@@ -177,20 +186,6 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     setImgX(anchorX - (anchorX - imgX) * ratio)
     setImgY(anchorY - (anchorY - imgY) * ratio)
   }, [scale, imgX, imgY])
-
-  const scaleToSlider = useCallback((value: number) => {
-    const minLog = Math.log(MIN_SCALE)
-    const maxLog = Math.log(MAX_SCALE)
-    const ratio = (Math.log(value) - minLog) / (maxLog - minLog)
-    return Math.round(ratio * 1000)
-  }, [])
-
-  const sliderToScale = useCallback((value: number) => {
-    const minLog = Math.log(MIN_SCALE)
-    const maxLog = Math.log(MAX_SCALE)
-    const ratio = value / 1000
-    return Math.exp(minLog + (maxLog - minLog) * ratio)
-  }, [])
 
   const zoomPercent = Math.round(scale * 100)
 
@@ -313,6 +308,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     setSamContours(candidate?.contours ?? null)
   }, [samCandidates])
 
+
   // ─── Wheel zoom ─────────────────────────────────────────────────────────────
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault()
@@ -385,6 +381,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const handleStageClick = useCallback(async (e: Konva.KonvaEventObject<MouseEvent>) => {
     const norm = getPointerNorm()
     if (!norm) return
+
+    if (e.evt.button !== 0) return
 
     if (activeTool === 'polygon') {
       if (polygonPoints.length >= 3) {
@@ -632,10 +630,51 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     getContourArea(contour) < getContourArea(best) ? contour : best
   ))
 
+  const negativeRadiusPx = Math.max(12, Math.round(Math.min(image.width, image.height) * 0.02))
+
+  const pointToSegmentDistancePx = (
+    point: NormalizedPoint,
+    a: [number, number],
+    b: [number, number],
+  ) => {
+    const px = point.x * image.width
+    const py = point.y * image.height
+    const ax = a[0] * image.width
+    const ay = a[1] * image.height
+    const bx = b[0] * image.width
+    const by = b[1] * image.height
+    const abx = bx - ax
+    const aby = by - ay
+    const denom = abx * abx + aby * aby
+    if (denom <= Number.EPSILON) {
+      return Math.hypot(px - ax, py - ay)
+    }
+    const t = Math.max(0, Math.min(1, (((px - ax) * abx) + ((py - ay) * aby)) / denom))
+    const projX = ax + (t * abx)
+    const projY = ay + (t * aby)
+    return Math.hypot(px - projX, py - projY)
+  }
+
+  const contourNegativePenalty = (contour: [number, number][], point: NormalizedPoint) => {
+    if (contourContainsPoint(contour, point)) return 1
+    let minDistance = Number.POSITIVE_INFINITY
+    for (let index = 0; index < contour.length; index += 1) {
+      const a = contour[index]
+      const b = contour[(index + 1) % contour.length]
+      minDistance = Math.min(minDistance, pointToSegmentDistancePx(point, a, b))
+    }
+    if (!Number.isFinite(minDistance) || minDistance >= negativeRadiusPx) return 0
+    return Math.max(0, 1 - (minDistance / negativeRadiusPx))
+  }
+
   const rankContours = (contours: [number, number][][]) => [...contours].sort((a, b) => {
     const positiveHitsA = positiveSamPoints.filter((point) => contourContainsPoint(a, point)).length
     const positiveHitsB = positiveSamPoints.filter((point) => contourContainsPoint(b, point)).length
     if (positiveHitsA !== positiveHitsB) return positiveHitsB - positiveHitsA
+
+    const negativePenaltyA = negativeSamPoints.reduce((sum, point) => sum + contourNegativePenalty(a, point), 0)
+    const negativePenaltyB = negativeSamPoints.reduce((sum, point) => sum + contourNegativePenalty(b, point), 0)
+    if (Math.abs(negativePenaltyA - negativePenaltyB) > 1e-6) return negativePenaltyA - negativePenaltyB
 
     const negativeHitsA = negativeSamPoints.filter((point) => contourContainsPoint(a, point)).length
     const negativeHitsB = negativeSamPoints.filter((point) => contourContainsPoint(b, point)).length
@@ -686,6 +725,17 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     setSelectedSamCandidateIndex(0)
   }, [])
 
+  const handleSamModelSwitch = useCallback(async (modelName: 'sam2.1' | 'sam3') => {
+    try {
+      setSamSessionReady(false)
+      clearSAMState()
+      const result = await sidecarClient.samSetModel({ model_name: modelName })
+      setSidecarRuntime(result.runtime)
+    } catch (err) {
+      setSamError(err instanceof Error ? err.message : String(err))
+    }
+  }, [clearSAMState, setSidecarRuntime])
+
   const commitSAM = useCallback(async () => {
     if (resolvedSamContours.length === 0) return
     const labelId = getActiveLabelId()
@@ -719,9 +769,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   }, [image.id, clearSAMState])
 
   useEffect(() => {
-    if (!loadedImg || !sidecarOnline) return
+    if (!loadedImg || !sidecarOnline || activeTool !== 'sam') return
     prepareSAMSession(true).catch(console.error)
-  }, [loadedImg, image.id, prepareSAMSession, sidecarOnline])
+  }, [activeTool, loadedImg, image.id, prepareSAMSession, sidecarOnline])
 
   // Escape cancels in-progress drawing; Enter finishes current polygon or commits SAM
   useEffect(() => {
@@ -729,8 +779,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'Escape') {
         setBboxStart(null); setBboxCurrent(null); setPolygonPoints([])
-        setSamPoints([]); setSamContours(null); setSamLastRun(null); setSamError(null)
-        setSelectedSamPointIndex(null)
+        clearSAMState()
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && activeTool === 'sam' && selectedSamPointIndex != null) {
         e.preventDefault()
@@ -745,7 +794,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeTool, commitSAM, finalizePolygon, removeSamPoint, selectedSamPointIndex])
+  }, [activeTool, clearSAMState, commitSAM, finalizePolygon, removeSamPoint, selectedSamPointIndex])
 
   const samPreviewTags = (() => {
     const tagWidth = Math.max(72, samPreviewLabel.length * 7 + 16)
@@ -799,6 +848,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', cursor, position: 'relative' }}>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       <Stage
         ref={stageRef}
         width={stageSize.width}
@@ -1041,8 +1091,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
           style={{
             position: 'absolute',
             bottom: 16,
-            left: '50%',
-            transform: 'translateX(-50%)',
+            right: 16,
             background: 'var(--panel-floating)',
             border: '1px solid var(--border)',
             borderRadius: 10,
@@ -1050,8 +1099,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
-            minWidth: 300,
-            maxWidth: 420,
+            width: 320,
+            maxWidth: 'calc(100% - 32px)',
             backdropFilter: 'blur(8px)',
             boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
             zIndex: 10,
@@ -1102,6 +1151,29 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             </div>
           </div>
 
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {(['sam2.1', 'sam3'] as const).map((modelName) => {
+              const active = sidecarRuntime?.sam_model_preference === modelName || sidecarRuntime?.sam_model_name === modelName
+              return (
+                <button
+                  key={modelName}
+                  onClick={() => handleSamModelSwitch(modelName)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 8,
+                    border: active ? '1px solid rgba(var(--accent-rgb),0.4)' : '1px solid var(--border)',
+                    background: active ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
+                    color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
+                >
+                  {modelName === 'sam2.1' ? 'SAM2' : 'SAM3'}
+                </button>
+              )
+            })}
+          </div>
+
           {sidecarRuntime?.nvidia_gpu_detected && !sidecarRuntime.cuda_available && (
             <div style={{ fontSize: 11, color: 'var(--warning)', lineHeight: 1.45 }}>
               {t('sam.gpuDetectedButUnused')}
@@ -1138,7 +1210,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
           {/* Status + commit row */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
+              {(samSessionPreparing || samLoading) && <span style={spinnerStyle} />}
               {samSessionPreparing
                 ? (language === 'ko' ? 'SAM 세션 준비 중...' : 'Preparing SAM session...')
                 : samLoading

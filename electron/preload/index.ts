@@ -10,6 +10,7 @@ const api = {
       ipcRenderer.invoke('project:open', filePath),
     close: () => ipcRenderer.invoke('project:close'),
     getMeta: () => ipcRenderer.invoke('project:getMeta'),
+    getCurrentDir: () => ipcRenderer.invoke('project:getCurrentDir'),
     updateName: (name: string) => ipcRenderer.invoke('project:updateName', name),
     renameRecent: (filePath: string, name: string) => ipcRenderer.invoke('project:renameRecent', filePath, name),
     listRecent: () => ipcRenderer.invoke('project:listRecent'),

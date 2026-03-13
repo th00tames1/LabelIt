@@ -26,11 +26,16 @@ class SAMService:
         self._runtime_info = None
         self._session_key: str | None = None
         self._session_size: tuple[int, int] | None = None
+        self._preferred_model = "sam3"
         self._models_dir = Path(os.path.dirname(__file__)).resolve().parent / "models"
         self._sam3_local_path = self._models_dir / "sam3.pt"
         self._sam2_local_path = self._models_dir / "sam2.1_b.pt"
 
     def _get_model_descriptor(self) -> tuple[str, str]:
+        if self._preferred_model == "sam3" and self._sam3_local_path.exists():
+            return "sam3", "SAM3"
+        if self._preferred_model == "sam2.1" and self._sam2_local_path.exists():
+            return "sam2.1", "SAM2.1"
         if self._sam3_local_path.exists():
             return "sam3", "SAM3"
         if self._sam2_local_path.exists():
@@ -38,6 +43,10 @@ class SAMService:
         return "sam2.1", "SAM2.1"
 
     def _ensure_point_model_path(self) -> str:
+        if self._preferred_model == "sam3" and self._sam3_local_path.exists():
+            return str(self._sam3_local_path)
+        if self._preferred_model == "sam2.1" and self._sam2_local_path.exists():
+            return str(self._sam2_local_path)
         if self._sam3_local_path.exists():
             return str(self._sam3_local_path)
         if self._sam2_local_path.exists():
@@ -59,6 +68,7 @@ class SAMService:
         model_name, model_label = self._get_model_descriptor()
         return {
             **self._runtime_info,
+            "sam_model_preference": self._preferred_model,
             "sam_model_name": model_name,
             "sam_model_label": model_label,
             "sam_model_loaded": self._predictor is not None,
@@ -221,7 +231,7 @@ class SAMService:
             strict_matches = [
                 candidate
                 for candidate in rated_candidates
-                if candidate["positive_hits"] == positive_total and candidate["negative_hits"] == 0
+                if candidate["positive_hits"] == positive_total and candidate["soft_negative_free"] == 1
             ]
             all_positive_matches = [
                 candidate
@@ -231,12 +241,12 @@ class SAMService:
             relaxed_matches = [
                 candidate
                 for candidate in rated_candidates
-                if candidate["positive_hits"] > 0 and candidate["negative_hits"] == 0
+                if candidate["positive_hits"] > 0 and candidate["soft_negative_free"] == 1
             ]
             partial_matches = [candidate for candidate in rated_candidates if candidate["positive_hits"] > 0]
             candidate_pool = strict_matches or all_positive_matches or relaxed_matches or partial_matches or rated_candidates
         elif negative_total > 0:
-            candidate_pool = [candidate for candidate in rated_candidates if candidate["negative_hits"] == 0] or rated_candidates
+            candidate_pool = [candidate for candidate in rated_candidates if candidate["soft_negative_free"] == 1] or rated_candidates
 
         if not candidate_pool:
             return [], [], 0.0
@@ -259,32 +269,81 @@ class SAMService:
         positive_total = sum(1 for label in prompt_labels if label == 1)
         positive_hits = 0
         negative_hits = 0
+        negative_soft_penalty = 0.0
 
         for point, label in zip(prompt_points, prompt_labels):
-          inside = self._candidate_contains_point(candidate, point[0], point[1])
-          if label == 1:
-              positive_hits += 1 if inside else 0
-          else:
-              negative_hits += 1 if inside else 0
+            inside = self._candidate_contains_point(candidate, point[0], point[1])
+            if label == 1:
+                positive_hits += 1 if inside else 0
+            else:
+                negative_hits += 1 if inside else 0
+                negative_soft_penalty += self._candidate_negative_penalty(candidate, point[0], point[1])
+
+        soft_negative_free = 1 if negative_soft_penalty <= 0.02 else 0
 
         return {
             "positive_total": positive_total,
             "positive_hits": positive_hits,
             "negative_hits": negative_hits,
+            "negative_soft_penalty": negative_soft_penalty,
             "all_positive": 1 if positive_total > 0 and positive_hits == positive_total else 0,
             "no_negative": 1 if negative_hits == 0 else 0,
+            "soft_negative_free": soft_negative_free,
             "area": self._candidate_area(candidate),
         }
 
     def _candidate_rank(self, candidate):
         return (
             candidate["all_positive"],
+            candidate["soft_negative_free"],
             candidate["no_negative"],
             candidate["positive_hits"],
+            -candidate["negative_soft_penalty"],
             -candidate["negative_hits"],
             -candidate["area"],
             candidate["score"],
         )
+
+    def _negative_radius_px(self):
+        session_size = self._session_size
+        if session_size is None:
+            return 16
+        return max(12, int(round(min(session_size) * 0.02)))
+
+    def _candidate_negative_penalty(self, candidate, x, y):
+        mask = candidate.get("mask")
+        radius = self._negative_radius_px()
+        if mask is not None:
+            return self._mask_overlap_in_radius(mask, x, y, radius)
+
+        if self._candidate_contains_point(candidate, x, y):
+            return 1.0
+
+        min_distance = min(
+            (self._point_to_contour_distance_px(contour, x, y) for contour in candidate["contours"]),
+            default=float("inf"),
+        )
+        if min_distance >= radius:
+            return 0.0
+        return max(0.0, 1.0 - (min_distance / max(radius, 1)))
+
+    def _mask_overlap_in_radius(self, mask, x, y, radius):
+        h, w = mask.shape
+        left = max(0, int(round(x - radius)))
+        right = min(w - 1, int(round(x + radius)))
+        top = max(0, int(round(y - radius)))
+        bottom = min(h - 1, int(round(y + radius)))
+        if left > right or top > bottom:
+            return 0.0
+
+        yy, xx = np.ogrid[top:bottom + 1, left:right + 1]
+        circle = ((xx - x) ** 2 + (yy - y) ** 2) <= radius ** 2
+        if not np.any(circle):
+            return 0.0
+
+        mask_crop = mask[top:bottom + 1, left:right + 1]
+        overlap = np.logical_and(mask_crop, circle)
+        return float(overlap.sum()) / float(circle.sum())
 
     def _candidate_contains_point(self, candidate, x, y):
         mask = candidate.get("mask")
@@ -315,6 +374,37 @@ class SAMService:
                 inside = not inside
         return inside
 
+    def _point_to_contour_distance_px(self, contour, x, y):
+        session_size = self._session_size
+        if session_size is None:
+            return float("inf")
+        px = x / max(session_size[0], 1)
+        py = y / max(session_size[1], 1)
+
+        if self._point_in_contour(contour, px, py):
+            return 0.0
+
+        best = float("inf")
+        for index, (x1, y1) in enumerate(contour):
+            x2, y2 = contour[(index + 1) % len(contour)]
+            dist = self._point_to_segment_distance_px(px, py, x1, y1, x2, y2, session_size)
+            best = min(best, dist)
+        return best
+
+    def _point_to_segment_distance_px(self, px, py, x1, y1, x2, y2, session_size):
+        sx, sy = session_size
+        p = np.array([px * sx, py * sy], dtype=np.float64)
+        a = np.array([x1 * sx, y1 * sy], dtype=np.float64)
+        b = np.array([x2 * sx, y2 * sy], dtype=np.float64)
+        ab = b - a
+        denom = float(np.dot(ab, ab))
+        if denom <= 1e-12:
+            return float(np.linalg.norm(p - a))
+        t = float(np.dot(p - a, ab) / denom)
+        t = max(0.0, min(1.0, t))
+        proj = a + t * ab
+        return float(np.linalg.norm(p - proj))
+
     def _contour_area(self, contour):
         if len(contour) < 3:
             return 0.0
@@ -333,6 +423,13 @@ class SAMService:
         self._predictor = None
         self._session_key = None
         self._session_size = None
+
+    def set_preferred_model(self, model_name: str):
+        if model_name not in {"sam2.1", "sam3"}:
+            raise RuntimeError("Unsupported SAM model")
+        self._preferred_model = model_name
+        self.unload()
+        return self.get_runtime_info()
 
 
 sam_service = SAMService()

@@ -22,6 +22,10 @@ class SAMPrepareSessionRequest(BaseModel):
     image_base64: str
 
 
+class SAMModelRequest(BaseModel):
+    model_name: str
+
+
 class SAMPredictResponse(BaseModel):
     candidates: list[dict]
     contours: list[list[list[float]]]  # [[[nx, ny], ...], ...] normalized
@@ -87,4 +91,17 @@ async def preload():
     return {
         "status": "ok",
         "runtime": sam_service.get_runtime_info(),
+    }
+
+
+@router.post("/model")
+async def set_model(request: SAMModelRequest):
+    try:
+        runtime = sam_service.set_preferred_model(request.model_name)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"SAM model error: {e}")
+
+    return {
+        "status": "ok",
+        "runtime": runtime,
     }

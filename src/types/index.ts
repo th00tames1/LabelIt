@@ -24,6 +24,7 @@ export interface SidecarRuntimeInfo {
   nvidia_gpu_detected: boolean
   hardware_label: string | null
   half_precision: boolean
+  sam_model_preference: string
   sam_model_name: string
   sam_model_label: string
   sam_model_loaded: boolean
@@ -133,8 +134,11 @@ export interface AugmentationRecipe {
   vertical_flip_enabled: boolean
   rotate_cw90_enabled: boolean
   rotate_cw270_enabled: boolean
+  rotate_enabled: boolean
+  rotate_range: number
   shear_enabled: boolean
-  shear_range: number
+  shear_x_range: number
+  shear_y_range: number
   brightness_enabled: boolean
   brightness_range: number
   contrast_enabled: boolean

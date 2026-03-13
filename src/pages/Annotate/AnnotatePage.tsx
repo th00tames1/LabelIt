@@ -399,7 +399,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
                     ×
                   </button>
                 </div>
-                {workflowNotice.targetTab && (
+                {workflowNotice.targetTab === 'labels' && (
                   <div style={{ marginTop: 10 }}>
                     <button
                       onClick={() => setRightPanelTab(workflowNotice.targetTab!)}

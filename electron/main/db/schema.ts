@@ -181,8 +181,11 @@ export interface AugmentationRecipe {
   vertical_flip_enabled: boolean
   rotate_cw90_enabled: boolean
   rotate_cw270_enabled: boolean
+  rotate_enabled: boolean
+  rotate_range: number
   shear_enabled: boolean
-  shear_range: number
+  shear_x_range: number
+  shear_y_range: number
   brightness_enabled: boolean
   brightness_range: number
   contrast_enabled: boolean

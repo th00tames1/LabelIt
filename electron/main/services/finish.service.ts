@@ -39,7 +39,9 @@ interface MaterializedTransform {
   horizontalFlip: boolean
   verticalFlip: boolean
   rotation: 0 | 90 | 270
-  shear: number
+  freeRotation: number
+  shearX: number
+  shearY: number
   brightnessDelta: number
   contrastDelta: number
   saturationDelta: number
@@ -87,8 +89,11 @@ const DEFAULT_RECIPE: AugmentationRecipe = {
   vertical_flip_enabled: false,
   rotate_cw90_enabled: false,
   rotate_cw270_enabled: false,
+  rotate_enabled: false,
+  rotate_range: 0,
   shear_enabled: false,
-  shear_range: 0,
+  shear_x_range: 0,
+  shear_y_range: 0,
   brightness_enabled: false,
   brightness_range: 0,
   contrast_enabled: false,
@@ -294,8 +299,11 @@ function normalizeRecipe(recipe: AugmentationRecipe): AugmentationRecipe {
     vertical_flip_enabled: Boolean(candidate.vertical_flip_enabled),
     rotate_cw90_enabled: Boolean(candidate.rotate_cw90_enabled),
     rotate_cw270_enabled: Boolean(candidate.rotate_cw270_enabled),
+    rotate_enabled: Boolean(candidate.rotate_enabled),
+    rotate_range: clampNumber(Math.abs(candidate.rotate_range), 0, 15),
     shear_enabled: Boolean(candidate.shear_enabled),
-    shear_range: clampNumber(Math.abs(candidate.shear_range), 0, 30),
+    shear_x_range: clampNumber(Math.abs(candidate.shear_x_range), 0, 15),
+    shear_y_range: clampNumber(Math.abs(candidate.shear_y_range), 0, 15),
     brightness_enabled: Boolean(candidate.brightness_enabled),
     brightness_range: clampNumber(Math.abs(candidate.brightness_range), 0, 0.3),
     contrast_enabled: Boolean(candidate.contrast_enabled),
@@ -361,7 +369,9 @@ function buildResolvedSamples(version: DatasetVersion, split?: SplitType): Resol
 }
 
 function createMaterializedTransform(recipe: AugmentationRecipe, rng: () => number, includeAugmentation: boolean): MaterializedTransform | null {
-  const absShear = Math.abs(recipe.shear_range)
+  const absRotate = Math.abs(recipe.rotate_range)
+  const absShearX = Math.abs(recipe.shear_x_range)
+  const absShearY = Math.abs(recipe.shear_y_range)
   const absBrightness = Math.abs(recipe.brightness_range)
   const absContrast = Math.abs(recipe.contrast_range)
   const absSaturation = Math.abs(recipe.saturation_range)
@@ -381,7 +391,9 @@ function createMaterializedTransform(recipe: AugmentationRecipe, rng: () => numb
     horizontalFlip: includeAugmentation && recipe.horizontal_flip_enabled && rng() < 0.5,
     verticalFlip: includeAugmentation && recipe.vertical_flip_enabled && rng() < 0.35,
     rotation: rotationChoices.length > 0 ? pick(rotationChoices, rng) : 0,
-    shear: includeAugmentation && recipe.shear_enabled && absShear > 0 ? randomRange(rng, -absShear, absShear) : 0,
+    freeRotation: includeAugmentation && recipe.rotate_enabled && absRotate > 0 ? randomRange(rng, -absRotate, absRotate) : 0,
+    shearX: includeAugmentation && recipe.shear_enabled && absShearX > 0 ? randomRange(rng, -absShearX, absShearX) : 0,
+    shearY: includeAugmentation && recipe.shear_enabled && absShearY > 0 ? randomRange(rng, -absShearY, absShearY) : 0,
     brightnessDelta: includeAugmentation && recipe.brightness_enabled && absBrightness > 0 ? randomRange(rng, -absBrightness, absBrightness) : 0,
     contrastDelta: includeAugmentation && recipe.contrast_enabled && absContrast > 0 ? randomRange(rng, -absContrast, absContrast) : 0,
     saturationDelta: includeAugmentation && recipe.saturation_enabled && absSaturation > 0 ? randomRange(rng, -absSaturation, absSaturation) : 0,
@@ -395,7 +407,11 @@ function createMaterializedTransform(recipe: AugmentationRecipe, rng: () => numb
     else if (recipe.rotate_cw90_enabled) transform.rotation = 90
     else if (recipe.rotate_cw270_enabled) transform.rotation = 270
     else if (recipe.vertical_flip_enabled) transform.verticalFlip = true
-    else if (recipe.shear_enabled && absShear > 0) transform.shear = Math.max(4, absShear * 0.5)
+    else if (recipe.rotate_enabled && absRotate > 0) transform.freeRotation = Math.max(4, absRotate * 0.5)
+    else if (recipe.shear_enabled && (absShearX > 0 || absShearY > 0)) {
+      transform.shearX = Math.max(4, absShearX * 0.5)
+      transform.shearY = Math.max(4, absShearY * 0.5)
+    }
     else if (recipe.brightness_enabled && absBrightness > 0) transform.brightnessDelta = Math.max(0.08, absBrightness * 0.5)
     else if (recipe.contrast_enabled && absContrast > 0) transform.contrastDelta = Math.max(0.08, absContrast * 0.5)
     else if (recipe.saturation_enabled && absSaturation > 0) transform.saturationDelta = Math.max(0.1, absSaturation * 0.5)
@@ -435,7 +451,9 @@ function isIdentityTransform(transform: MaterializedTransform): boolean {
     && !transform.horizontalFlip
     && !transform.verticalFlip
     && transform.rotation === 0
-    && Math.abs(transform.shear) < 0.5
+    && Math.abs(transform.freeRotation) < 0.25
+    && Math.abs(transform.shearX) < 0.5
+    && Math.abs(transform.shearY) < 0.5
     && Math.abs(transform.brightnessDelta) < 0.01
     && Math.abs(transform.contrastDelta) < 0.01
     && Math.abs(transform.saturationDelta) < 0.01
@@ -714,8 +732,21 @@ function transformPoint(
   x -= 0.5
   y -= 0.5
 
-  if (Math.abs(transform.shear) >= 0.5) {
-    x += Math.tan((transform.shear * Math.PI) / 180) * y * (currentHeight / Math.max(currentWidth, 1))
+  if (Math.abs(transform.shearX) >= 0.5) {
+    x += Math.tan((transform.shearX * Math.PI) / 180) * y * (currentHeight / Math.max(currentWidth, 1))
+  }
+  if (Math.abs(transform.shearY) >= 0.5) {
+    y += Math.tan((transform.shearY * Math.PI) / 180) * x * (currentWidth / Math.max(currentHeight, 1))
+  }
+
+  if (Math.abs(transform.freeRotation) >= 0.25) {
+    const radians = (transform.freeRotation * Math.PI) / 180
+    const cos = Math.cos(radians)
+    const sin = Math.sin(radians)
+    const rotatedX = x * cos - y * sin
+    const rotatedY = x * sin + y * cos
+    x = rotatedX
+    y = rotatedY
   }
 
   x += 0.5
@@ -769,7 +800,8 @@ function hasAugmentationEffect(recipe: AugmentationRecipe): boolean {
     || recipe.vertical_flip_enabled
     || recipe.rotate_cw90_enabled
     || recipe.rotate_cw270_enabled
-    || (recipe.shear_enabled && Math.abs(recipe.shear_range) > 0)
+    || (recipe.rotate_enabled && Math.abs(recipe.rotate_range) > 0)
+    || (recipe.shear_enabled && (Math.abs(recipe.shear_x_range) > 0 || Math.abs(recipe.shear_y_range) > 0))
     || (recipe.brightness_enabled && Math.abs(recipe.brightness_range) > 0)
     || (recipe.contrast_enabled && Math.abs(recipe.contrast_range) > 0)
     || (recipe.saturation_enabled && Math.abs(recipe.saturation_range) > 0)
@@ -1148,14 +1180,23 @@ async function writeSampleImage(sample: ResolvedSample, destinationPath: string)
     })
   }
 
-  if (sample.transform != null && Math.abs(sample.transform.shear) >= 0.5) {
-    const shear = Math.tan((sample.transform.shear * Math.PI) / 180)
-    pipeline = pipeline.affine([1, shear, 0, 1], {
+  if (sample.transform != null && (Math.abs(sample.transform.shearX) >= 0.5 || Math.abs(sample.transform.shearY) >= 0.5)) {
+    const shearX = Math.tan((sample.transform.shearX * Math.PI) / 180)
+    const shearY = Math.tan((sample.transform.shearY * Math.PI) / 180)
+    pipeline = pipeline.affine([1, shearX, shearY, 1], {
       background: sample.transform.resizeMode === 'white_edges'
         ? { r: 255, g: 255, b: 255, alpha: 1 }
         : { r: 0, g: 0, b: 0, alpha: 1 },
       interpolator: sharp.interpolators.bicubic,
     }).resize(sample.width, sample.height, { fit: 'fill' })
+  }
+
+  if (sample.transform != null && Math.abs(sample.transform.freeRotation) >= 0.25) {
+    pipeline = pipeline.rotate(sample.transform.freeRotation, {
+      background: sample.transform.resizeMode === 'white_edges'
+        ? { r: 255, g: 255, b: 255, alpha: 1 }
+        : { r: 0, g: 0, b: 0, alpha: 1 },
+    })
   }
 
   if (sample.transform?.adjustContrastMode === 'stretch') {

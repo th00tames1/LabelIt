@@ -47,6 +47,7 @@ export const projectApi = {
     api.project.open(filePath),
   close: (): Promise<void> => api.project.close(),
   getMeta: (): Promise<ProjectMeta> => api.project.getMeta(),
+  getCurrentDir: (): Promise<string | null> => api.project.getCurrentDir(),
   updateName: (name: string): Promise<ProjectMeta> => api.project.updateName(name),
   renameRecent: (filePath: string, name: string): Promise<RecentProject[]> =>
     api.project.renameRecent(filePath, name),

@@ -214,7 +214,7 @@ export default function AutoLabelDialog({ images, activeImageId, onClose, onComp
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
               {text.title}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, fontWeight: 600 }}>
               {text.subtitle}
             </div>
           </div>

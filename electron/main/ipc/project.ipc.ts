@@ -54,6 +54,7 @@ export function registerProjectIpc(): void {
   })
 
   ipcMain.handle('project:getMeta', async () => getProjectMeta())
+  ipcMain.handle('project:getCurrentDir', async () => currentProjectDir)
 
   ipcMain.handle('project:updateName', async (_event, name: string) => {
     const trimmed = name.trim()

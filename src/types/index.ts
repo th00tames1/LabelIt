@@ -24,6 +24,8 @@ export interface SidecarRuntimeInfo {
   nvidia_gpu_detected: boolean
   hardware_label: string | null
   half_precision: boolean
+  sam_model_name: string
+  sam_model_label: string
   sam_model_loaded: boolean
   sam_text_model_loaded: boolean
   setup_hint: string | null

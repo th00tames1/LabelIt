@@ -68,6 +68,12 @@ const visibilityIconButtonStyle: CSSProperties = {
 
 interface SAMPoint { x: number; y: number; label: 0 | 1 }
 
+interface SAMCandidate {
+  contours: [number, number][][]
+  score: number
+  area: number
+}
+
 interface SamRunMeta {
   processingTimeMs: number
   mode: 'point'
@@ -102,17 +108,19 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   // SAM tool state
   const [samPoints, setSamPoints] = useState<SAMPoint[]>([])
   const [samContours, setSamContours] = useState<[number, number][][] | null>(null)
+  const [samCandidates, setSamCandidates] = useState<SAMCandidate[]>([])
   const [samLoading, setSamLoading] = useState(false)
   const [samLastRun, setSamLastRun] = useState<SamRunMeta | null>(null)
   const [samError, setSamError] = useState<string | null>(null)
   const [selectedSamPointIndex, setSelectedSamPointIndex] = useState<number | null>(null)
+  const [selectedSamCandidateIndex, setSelectedSamCandidateIndex] = useState(0)
   const [samSessionReady, setSamSessionReady] = useState(false)
   const [samSessionPreparing, setSamSessionPreparing] = useState(false)
 
   const { annotations, selectedId, setSelectedId, createAnnotation, updateGeometry } =
     useAnnotationStore()
   const { labels } = useLabelStore()
-  const { activeLabelClassId, annotationsVisible, sidecarRuntime, toggleAnnotationsVisible } = useUIStore()
+  const { activeLabelClassId, annotationsVisible, sidecarOnline, sidecarRuntime, toggleAnnotationsVisible } = useUIStore()
   const { language, t } = useI18n()
 
   // Wrapper: create annotation and notify parent for label quick-pick
@@ -247,7 +255,13 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
   // Run SAM prediction with current points (point-prompt mode)
   const runSAMPrediction = useCallback(async (points: SAMPoint[]) => {
-    if (points.length === 0) { setSamContours(null); setSamError(null); return }
+    if (points.length === 0) {
+      setSamContours(null)
+      setSamCandidates([])
+      setSelectedSamCandidateIndex(0)
+      setSamError(null)
+      return
+    }
     const ready = await prepareSAMSession()
     if (!ready) return
     setSamLoading(true)
@@ -257,8 +271,10 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         image_key: image.id,
         points: points.map((p) => [p.x, p.y]),
         point_labels: points.map((p) => p.label),
-        multimask: false,
+        multimask: true,
       })
+      setSamCandidates(result.candidates ?? [{ contours: result.contours, score: result.score, area: 0 }])
+      setSelectedSamCandidateIndex(0)
       setSamContours(result.contours)
       setSamLastRun({
         processingTimeMs: result.processing_time_ms,
@@ -269,6 +285,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     } catch (err) {
       console.warn('SAM prediction failed:', err)
       setSamContours(null)
+      setSamCandidates([])
+      setSelectedSamCandidateIndex(0)
       setSamLastRun(null)
       setSamError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -288,6 +306,12 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
       return current > index ? current - 1 : current
     })
   }, [runSAMPrediction])
+
+  const applySamCandidate = useCallback((index: number) => {
+    setSelectedSamCandidateIndex(index)
+    const candidate = samCandidates[index]
+    setSamContours(candidate?.contours ?? null)
+  }, [samCandidates])
 
   // ─── Wheel zoom ─────────────────────────────────────────────────────────────
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -553,6 +577,12 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     return `${Math.round(value)}ms`
   }
 
+  const formatCandidateArea = (area: number) => {
+    if (area >= 1_000_000) return `${(area / 1_000_000).toFixed(2)}M px`
+    if (area >= 1_000) return `${(area / 1_000).toFixed(1)}k px`
+    return `${Math.round(area)} px`
+  }
+
   const getContourArea = (contour: [number, number][]) => {
     if (contour.length < 3) return 0
 
@@ -598,46 +628,62 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     })
   }
 
+  const pickSmallestContour = (contours: [number, number][][]) => contours.reduce((best, contour) => (
+    getContourArea(contour) < getContourArea(best) ? contour : best
+  ))
+
+  const rankContours = (contours: [number, number][][]) => [...contours].sort((a, b) => {
+    const positiveHitsA = positiveSamPoints.filter((point) => contourContainsPoint(a, point)).length
+    const positiveHitsB = positiveSamPoints.filter((point) => contourContainsPoint(b, point)).length
+    if (positiveHitsA !== positiveHitsB) return positiveHitsB - positiveHitsA
+
+    const negativeHitsA = negativeSamPoints.filter((point) => contourContainsPoint(a, point)).length
+    const negativeHitsB = negativeSamPoints.filter((point) => contourContainsPoint(b, point)).length
+    if (negativeHitsA !== negativeHitsB) return negativeHitsA - negativeHitsB
+
+    return getContourArea(a) - getContourArea(b)
+  })
+
   const positiveSamPoint = [...samPoints].reverse().find((point) => point.label === 1) ?? null
   const positiveSamPoints = samPoints.filter((point) => point.label === 1)
   const negativeSamPoints = samPoints.filter((point) => point.label === 0)
+  const activeSamCandidate = samCandidates[selectedSamCandidateIndex] ?? null
   const resolvedSamContours = (() => {
-    if (samContours == null || samContours.length === 0) return []
+    const candidateContours = activeSamCandidate?.contours ?? samContours
+    if (candidateContours == null || candidateContours.length === 0) return []
 
     const filteredByNegative = negativeSamPoints.length === 0
-      ? samContours
-      : samContours.filter((contour) => !negativeSamPoints.some((point) => contourContainsPoint(contour, point)))
-    if (filteredByNegative.length === 0) return []
+      ? candidateContours
+      : candidateContours.filter((contour) => !negativeSamPoints.some((point) => contourContainsPoint(contour, point)))
+    const preferredContours = filteredByNegative.length > 0 ? filteredByNegative : candidateContours
 
     if (positiveSamPoints.length > 1) {
-      const containingAll = filteredByNegative.filter((contour) => positiveSamPoints.every((point) => contourContainsPoint(contour, point)))
+      const containingAll = preferredContours.filter((contour) => positiveSamPoints.every((point) => contourContainsPoint(contour, point)))
       if (containingAll.length > 0) {
-        return [containingAll.reduce((best, contour) => (
-          getContourArea(contour) > getContourArea(best) ? contour : best
-        ))]
+        return [pickSmallestContour(containingAll)]
       }
+      return [rankContours(preferredContours)[0]]
     }
 
     if (positiveSamPoint != null) {
-      const containing = filteredByNegative.filter((contour) => contourContainsPoint(contour, positiveSamPoint))
+      const containing = preferredContours.filter((contour) => contourContainsPoint(contour, positiveSamPoint))
       if (containing.length > 0) {
-        return [containing.reduce((best, contour) => (
-          getContourArea(contour) > getContourArea(best) ? contour : best
-        ))]
+        return [pickSmallestContour(containing)]
       }
+      return [rankContours(preferredContours)[0]]
     }
 
-    return [filteredByNegative.reduce((best, contour) => (
-      getContourArea(contour) > getContourArea(best) ? contour : best
-    ))]
+    return [rankContours(preferredContours)[0]]
   })()
 
   const clearSAMState = useCallback(() => {
     setSamPoints([])
     setSamContours(null)
+    setSamCandidates([])
     setSamLastRun(null)
     setSamError(null)
     setSelectedSamPointIndex(null)
+    setSelectedSamCandidateIndex(0)
   }, [])
 
   const commitSAM = useCallback(async () => {
@@ -673,9 +719,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   }, [image.id, clearSAMState])
 
   useEffect(() => {
-    if (!loadedImg || activeTool !== 'sam') return
+    if (!loadedImg || !sidecarOnline) return
     prepareSAMSession(true).catch(console.error)
-  }, [activeTool, loadedImg, image.id, prepareSAMSession])
+  }, [loadedImg, image.id, prepareSAMSession, sidecarOnline])
 
   // Escape cancels in-progress drawing; Enter finishes current polygon or commits SAM
   useEffect(() => {
@@ -730,10 +776,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     return []
   })()
   const samRuntimeText = sidecarRuntime == null
-    ? t('sam.runtimeChecking')
-    : sidecarRuntime.acceleration === 'gpu'
-      ? t('sam.runtimeGpu')
-      : t('sam.runtimeCpu')
+    ? 'SAM'
+    : sidecarRuntime.sam_model_label
 
   const cursor =
     activeTool === 'bbox' || activeTool === 'polygon'
@@ -1042,7 +1086,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                 width: 7,
                 height: 7,
                 borderRadius: '50%',
-                background: sidecarRuntime?.acceleration === 'gpu' ? '#22c55e' : '#f59e0b',
+                background: sidecarRuntime?.sam_model_loaded ? '#22c55e' : '#f59e0b',
               }} />
               <span style={{
                 fontSize: 11,
@@ -1064,6 +1108,34 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             </div>
           )}
 
+          {samCandidates.length > 1 && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {samCandidates.map((candidate, index) => {
+                const active = index === selectedSamCandidateIndex
+                const containsPositive = positiveSamPoints.length === 0
+                  ? true
+                  : candidate.contours.some((contour) => positiveSamPoints.every((point) => contourContainsPoint(contour, point)))
+                return (
+                  <button
+                    key={`sam-candidate-${index}`}
+                    onClick={() => applySamCandidate(index)}
+                    style={{
+                      padding: '5px 9px',
+                      borderRadius: 8,
+                      border: active ? '1px solid rgba(var(--accent-rgb),0.42)' : '1px solid var(--border)',
+                      background: active ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
+                      color: active ? 'var(--accent)' : (containsPositive ? 'var(--text-secondary)' : '#fca5a5'),
+                      fontSize: 11,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {`${language === 'ko' ? '후보' : 'Candidate'} ${index + 1} · ${formatCandidateArea(candidate.area)}${containsPositive ? '' : language === 'ko' ? ' · 포인트 불일치' : ' · prompt mismatch'}`}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {/* Status + commit row */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -1071,10 +1143,10 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                 ? (language === 'ko' ? 'SAM 세션 준비 중...' : 'Preparing SAM session...')
                 : samLoading
                 ? (language === 'ko' ? 'SAM 실행 중 (CPU에서는 느릴 수 있음)...' : 'SAM running (may take longer on CPU)...')
-                : resolvedSamContours.length > 0
+                : samCandidates.length > 0
                 ? (language === 'ko'
-                  ? `${resolvedSamContours.length}개 마스크 준비됨 - Enter 또는 Commit 클릭`
-                  : `${resolvedSamContours.length} mask(s) ready - press Enter or click Commit`)
+                  ? `${samCandidates.length}개 후보 준비됨 - 선택 후 Enter 또는 Commit 클릭`
+                  : `${samCandidates.length} candidate(s) ready - choose one, then press Enter or click Commit`)
                 : (language === 'ko'
                   ? t('sam.clickHint')
                   : t('sam.clickHint'))}

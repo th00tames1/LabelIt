@@ -30,6 +30,13 @@ class SAMService:
         self._sam3_local_path = self._models_dir / "sam3.pt"
         self._sam2_local_path = self._models_dir / "sam2.1_b.pt"
 
+    def _get_model_descriptor(self) -> tuple[str, str]:
+        if self._sam3_local_path.exists():
+            return "sam3", "SAM3"
+        if self._sam2_local_path.exists():
+            return "sam2.1", "SAM2.1"
+        return "sam2.1", "SAM2.1"
+
     def _ensure_point_model_path(self) -> str:
         if self._sam3_local_path.exists():
             return str(self._sam3_local_path)
@@ -49,8 +56,11 @@ class SAMService:
     def get_runtime_info(self):
         if self._runtime_info is None:
             self._runtime_info = detect_runtime_info()
+        model_name, model_label = self._get_model_descriptor()
         return {
             **self._runtime_info,
+            "sam_model_name": model_name,
+            "sam_model_label": model_label,
             "sam_model_loaded": self._predictor is not None,
             "sam_text_model_loaded": False,
         }
@@ -152,11 +162,11 @@ class SAMService:
         except Exception as e:
             raise RuntimeError(f"SAM prompt inference failed: {e}") from e
 
-        return self._parse_results(results, img_w, img_h, multimask)
+        return self._parse_results(results, img_w, img_h, multimask, abs_points, point_labels)
 
-    def _parse_results(self, results, img_w, img_h, multimask):
+    def _parse_results(self, results, img_w, img_h, multimask, prompt_points=None, prompt_labels=None):
         if not results or results[0].masks is None:
-            return [], 0.0
+            return [], [], 0.0
 
         result = results[0]
         mask_candidates = []
@@ -182,6 +192,7 @@ class SAMService:
                     mask_candidates.append({
                         "contours": sorted(polys, key=self._contour_area, reverse=True),
                         "score": scores[index] if index < len(scores) else 0.0,
+                        "mask": mask_np.astype(bool),
                     })
 
         if not mask_candidates and hasattr(result.masks, "xy") and result.masks.xy is not None:
@@ -192,22 +203,117 @@ class SAMService:
                 mask_candidates.append({
                     "contours": [norm_contour],
                     "score": scores[index] if index < len(scores) else 0.0,
+                    "mask": None,
                 })
 
         if not mask_candidates:
-            return [], 0.0
+            return [], [], 0.0
 
-        if multimask:
-            merged_contours = []
-            best_score = 0.0
-            for candidate in mask_candidates:
-                merged_contours.extend(candidate["contours"])
-                best_score = max(best_score, candidate["score"])
-            return merged_contours, best_score
+        rated_candidates = []
+        for candidate in mask_candidates:
+            metrics = self._candidate_metrics(candidate, prompt_points or [], prompt_labels or [])
+            rated_candidates.append({ **candidate, **metrics })
 
-        best_candidate = max(mask_candidates, key=lambda candidate: candidate["score"])
+        candidate_pool = rated_candidates
+        positive_total = sum(1 for label in (prompt_labels or []) if label == 1)
+        negative_total = sum(1 for label in (prompt_labels or []) if label == 0)
+        if positive_total > 0:
+            strict_matches = [
+                candidate
+                for candidate in rated_candidates
+                if candidate["positive_hits"] == positive_total and candidate["negative_hits"] == 0
+            ]
+            all_positive_matches = [
+                candidate
+                for candidate in rated_candidates
+                if candidate["positive_hits"] == positive_total
+            ]
+            relaxed_matches = [
+                candidate
+                for candidate in rated_candidates
+                if candidate["positive_hits"] > 0 and candidate["negative_hits"] == 0
+            ]
+            partial_matches = [candidate for candidate in rated_candidates if candidate["positive_hits"] > 0]
+            candidate_pool = strict_matches or all_positive_matches or relaxed_matches or partial_matches or rated_candidates
+        elif negative_total > 0:
+            candidate_pool = [candidate for candidate in rated_candidates if candidate["negative_hits"] == 0] or rated_candidates
+
+        if not candidate_pool:
+            return [], [], 0.0
+
+        ranked_candidates = sorted(candidate_pool, key=self._candidate_rank, reverse=True)
+        top_candidates = ranked_candidates[:3]
+        best_candidate = top_candidates[0]
         best_score = best_candidate["score"] if best_candidate["score"] > 0 else 0.9
-        return best_candidate["contours"], best_score
+        serialized = [
+            {
+                "contours": candidate["contours"],
+                "score": float(candidate["score"] if candidate["score"] > 0 else 0.9),
+                "area": float(self._candidate_area(candidate)),
+            }
+            for candidate in top_candidates
+        ]
+        return serialized, best_candidate["contours"], best_score
+
+    def _candidate_metrics(self, candidate, prompt_points, prompt_labels):
+        positive_total = sum(1 for label in prompt_labels if label == 1)
+        positive_hits = 0
+        negative_hits = 0
+
+        for point, label in zip(prompt_points, prompt_labels):
+          inside = self._candidate_contains_point(candidate, point[0], point[1])
+          if label == 1:
+              positive_hits += 1 if inside else 0
+          else:
+              negative_hits += 1 if inside else 0
+
+        return {
+            "positive_total": positive_total,
+            "positive_hits": positive_hits,
+            "negative_hits": negative_hits,
+            "all_positive": 1 if positive_total > 0 and positive_hits == positive_total else 0,
+            "no_negative": 1 if negative_hits == 0 else 0,
+            "area": self._candidate_area(candidate),
+        }
+
+    def _candidate_rank(self, candidate):
+        return (
+            candidate["all_positive"],
+            candidate["no_negative"],
+            candidate["positive_hits"],
+            -candidate["negative_hits"],
+            -candidate["area"],
+            candidate["score"],
+        )
+
+    def _candidate_contains_point(self, candidate, x, y):
+        mask = candidate.get("mask")
+        if mask is not None:
+            x = int(np.clip(round(x), 0, mask.shape[1] - 1))
+            y = int(np.clip(round(y), 0, mask.shape[0] - 1))
+            return bool(mask[y, x])
+
+        session_size = self._session_size
+        if session_size is None:
+            return False
+        nx = x / max(session_size[0], 1)
+        ny = y / max(session_size[1], 1)
+        return any(self._point_in_contour(contour, nx, ny) for contour in candidate["contours"])
+
+    def _candidate_area(self, candidate):
+        mask = candidate.get("mask")
+        if mask is not None:
+            return int(mask.sum())
+        return max((self._contour_area(contour) for contour in candidate["contours"]), default=0.0)
+
+    def _point_in_contour(self, contour, x, y):
+        inside = False
+        for index, (x1, y1) in enumerate(contour):
+            x2, y2 = contour[(index + 1) % len(contour)]
+            intersects = ((y1 > y) != (y2 > y)) and (x < ((x2 - x1) * (y - y1)) / ((y2 - y1) or 1e-12) + x1)
+            if intersects:
+                inside = not inside
+        return inside
 
     def _contour_area(self, contour):
         if len(contour) < 3:

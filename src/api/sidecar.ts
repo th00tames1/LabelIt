@@ -30,6 +30,11 @@ export interface SAMPrepareSessionRequest {
 }
 
 export interface SAMPredictResponse {
+  candidates?: {
+    contours: [number, number][][]
+    score: number
+    area: number
+  }[]
   contours: [number, number][][]
   score: number
   processing_time_ms: number

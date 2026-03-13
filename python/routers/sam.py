@@ -23,6 +23,7 @@ class SAMPrepareSessionRequest(BaseModel):
 
 
 class SAMPredictResponse(BaseModel):
+    candidates: list[dict]
     contours: list[list[list[float]]]  # [[[nx, ny], ...], ...] normalized
     score: float
     processing_time_ms: float
@@ -36,7 +37,7 @@ async def predict(request: SAMPredictRequest):
 
     t0 = time.perf_counter()
     try:
-        contours, score = sam_service.predict_session(
+        candidates, contours, score = sam_service.predict_session(
             image_key=request.image_key,
             points=request.points,
             point_labels=request.point_labels,
@@ -49,6 +50,7 @@ async def predict(request: SAMPredictRequest):
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
     return SAMPredictResponse(
+        candidates=candidates,
         contours=contours,
         score=score,
         processing_time_ms=elapsed_ms,

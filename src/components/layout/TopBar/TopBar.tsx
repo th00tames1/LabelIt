@@ -137,9 +137,9 @@ export default function TopBar({ onGoHome, onFinish, onAutoSplit, onAutoLabel }:
         title={sidecarOnline ? t('topbar.autoLabelTitle') : t('topbar.aiOffline')}
         style={{
           width: 114, height: CONTROL_HEIGHT, padding: '4px 12px', borderRadius: 5, fontSize: 12, fontWeight: 600,
-          background: sidecarOnline ? 'rgba(var(--accent-rgb),0.16)' : 'var(--bg-tertiary)',
+          background: sidecarOnline ? 'rgba(var(--accent-rgb),0.2)' : 'var(--bg-tertiary)',
           border: `1px solid ${sidecarOnline ? 'rgba(var(--accent-rgb),0.42)' : 'var(--border)'}`,
-          color: sidecarOnline ? '#ffd6c7' : 'var(--text-muted)',
+          color: sidecarOnline ? 'var(--text-primary)' : 'var(--text-muted)',
           cursor: sidecarOnline ? 'pointer' : 'not-allowed',
           opacity: sidecarOnline ? 1 : 0.5,
           flexShrink: 0,

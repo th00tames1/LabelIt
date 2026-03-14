@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { useImageStore } from '../../store/imageStore'
 import { useLabelStore } from '../../store/labelStore'
 import { useAnnotationStore } from '../../store/annotationStore'
@@ -46,6 +46,31 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
   // Quick-label popup: shown after drawing a new annotation
   const [quickPickAnnotationId, setQuickPickAnnotationId] = useState<string | null>(null)
   const [workflowNotice, setWorkflowNotice] = useState<WorkflowNotice | null>(null)
+  const activeImageIdRef = useRef<string | null>(activeImageId)
+
+  useEffect(() => {
+    activeImageIdRef.current = activeImageId
+  }, [activeImageId])
+
+  const syncImportedData = useCallback(async (nextImages: typeof images, targetImageId?: string | null) => {
+    await loadLabels()
+    setImages(nextImages)
+
+    const target = targetImageId != null
+      ? nextImages.find((img) => img.id === targetImageId) ?? null
+      : null
+
+    if (target) {
+      setActiveImageId(target.id)
+      await loadForImage(target.id)
+      return
+    }
+
+    if (activeImageIdRef.current == null && nextImages.length > 0) {
+      setActiveImageId(nextImages[0].id)
+      await loadForImage(nextImages[0].id)
+    }
+  }, [loadForImage, loadLabels, setActiveImageId, setImages])
 
   // Load images and labels on mount — auto-select first unlabeled image
   useEffect(() => {
@@ -115,19 +140,20 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
 
       await imageApi.import(filePaths)
       const nextImages = await imageApi.list()
-      setImages(nextImages)
+      if (nextImages.length === 0) {
+        await syncImportedData(nextImages)
+        return
+      }
 
-      if (nextImages.length === 0) return
       const preserved = activeImageId != null
         ? nextImages.find((image) => image.id === activeImageId) ?? null
         : null
       const target = preserved ?? nextImages[0]
-      setActiveImageId(target.id)
-      await loadForImage(target.id)
+      await syncImportedData(nextImages, target.id)
     }
 
     run().catch(console.error)
-  }, [menuImportSignal]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [menuImportSignal, syncImportedData])
 
   const showCreateLabelNotice = useCallback(() => {
     setActiveTool('select')
@@ -332,7 +358,9 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
           images={images}
           activeImageId={activeImageId}
           onSelectImage={handleSelectImage}
-          onImportComplete={(newImages) => setImages(newImages)}
+          onImportComplete={async (newImages) => {
+            await syncImportedData(newImages)
+          }}
         />
 
         {/* Main canvas area */}

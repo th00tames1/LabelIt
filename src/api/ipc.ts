@@ -193,6 +193,7 @@ export const statsApi = {
 // ─── Sidecar ─────────────────────────────────────────────────────────────────
 export const sidecarApi = {
   getStatus: (): Promise<string> => api.sidecar.getStatus(),
+  ensureStarted: (): Promise<string> => api.sidecar.ensureStarted(),
 }
 
 // ─── YOLO Auto-Label ─────────────────────────────────────────────────────────

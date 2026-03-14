@@ -48,4 +48,9 @@ export function registerExportIpc(): void {
   ipcMain.handle('sidecar:getStatus', async () => {
     return sidecarService.status
   })
+
+  ipcMain.handle('sidecar:ensureStarted', async () => {
+    await sidecarService.start()
+    return sidecarService.status
+  })
 }

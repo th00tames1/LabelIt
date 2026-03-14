@@ -25,7 +25,7 @@ const GROUPS = {
         ['E', 'Polygon'],
         ['S', 'Smart Polygon'],
         ['K', 'Keypoint'],
-        ['-', 'Null Tool'],
+        ['-', 'Null'],
       ],
     },
     {
@@ -90,7 +90,7 @@ const GROUPS = {
         ['E', '폴리곤'],
         ['S', '스마트 폴리곤'],
         ['K', '키포인트'],
-        ['-', 'Null Tool'],
+        ['-', 'Null 도구'],
       ],
     },
     {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import HomePage from './pages/Home/HomePage'
 import AnnotatePage from './pages/Annotate/AnnotatePage'
 import FinishPage from './pages/Finish/FinishPage'
@@ -7,7 +7,7 @@ import { useUIStore } from './store/uiStore'
 import { useSettingsStore } from './store/settingsStore'
 import { useImageStore } from './store/imageStore'
 import { sidecarClient } from './api/sidecar'
-import { menuApi, projectApi } from './api/ipc'
+import { menuApi, projectApi, sidecarApi } from './api/ipc'
 import labelItWhiteLogo from './assets/Labelit_White.svg'
 import labelItDarkLogo from './assets/Labelit_Dark.svg'
 
@@ -25,13 +25,37 @@ export default function App() {
   const setSidecarRuntime = useUIStore((s) => s.setSidecarRuntime)
   const theme = useSettingsStore((s) => s.settings.theme)
   const setActiveImageId = useImageStore((s) => s.setActiveImageId)
+  const sidecarBootingRef = useRef(false)
 
   // Poll sidecar health every 5 seconds
   useEffect(() => {
     const check = async () => {
-      const health = await sidecarClient.health()
-      setSidecarOnline(health != null)
-      setSidecarRuntime(health?.runtime ?? null)
+      let health = await sidecarClient.health()
+      let status: string | null = null
+
+      if (health == null && !sidecarBootingRef.current) {
+        status = await sidecarApi.getStatus().catch(() => 'stopped')
+        if (status !== 'running' && status !== 'starting') {
+          sidecarBootingRef.current = true
+          try {
+            await sidecarApi.ensureStarted()
+            health = await sidecarClient.health()
+            status = health != null ? 'running' : await sidecarApi.getStatus().catch(() => 'stopped')
+          } catch (error) {
+            console.warn('[renderer] Failed to ensure sidecar start:', error)
+          } finally {
+            sidecarBootingRef.current = false
+          }
+        }
+      }
+
+      if (health?.runtime != null) {
+        setSidecarRuntime(health.runtime)
+      } else if (status === 'stopped' || status === 'error') {
+        setSidecarRuntime(null)
+      }
+
+      setSidecarOnline(health != null || status === 'running' || status === 'starting')
     }
     check()
     const interval = setInterval(check, 5000)

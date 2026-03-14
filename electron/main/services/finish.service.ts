@@ -89,8 +89,8 @@ const DEFAULT_RECIPE: AugmentationRecipe = {
   vertical_flip_enabled: false,
   rotate_cw90_enabled: false,
   rotate_cw270_enabled: false,
-  rotate_enabled: false,
-  rotate_range: 0,
+  rotate_enabled: true,
+  rotate_range: 15,
   shear_enabled: false,
   shear_x_range: 0,
   shear_y_range: 0,
@@ -389,7 +389,7 @@ function createMaterializedTransform(recipe: AugmentationRecipe, rng: () => numb
     adjustContrastMode: recipe.adjust_contrast_enabled ? recipe.adjust_contrast_mode : null,
     autoOrientEnabled: recipe.auto_orient_enabled,
     horizontalFlip: includeAugmentation && recipe.horizontal_flip_enabled && rng() < 0.5,
-    verticalFlip: includeAugmentation && recipe.vertical_flip_enabled && rng() < 0.35,
+    verticalFlip: includeAugmentation && recipe.vertical_flip_enabled && rng() < 0.5,
     rotation: rotationChoices.length > 0 ? pick(rotationChoices, rng) : 0,
     freeRotation: includeAugmentation && recipe.rotate_enabled && absRotate > 0 ? randomRange(rng, -absRotate, absRotate) : 0,
     shearX: includeAugmentation && recipe.shear_enabled && absShearX > 0 ? randomRange(rng, -absShearX, absShearX) : 0,
@@ -398,7 +398,7 @@ function createMaterializedTransform(recipe: AugmentationRecipe, rng: () => numb
     contrastDelta: includeAugmentation && recipe.contrast_enabled && absContrast > 0 ? randomRange(rng, -absContrast, absContrast) : 0,
     saturationDelta: includeAugmentation && recipe.saturation_enabled && absSaturation > 0 ? randomRange(rng, -absSaturation, absSaturation) : 0,
     hueDelta: includeAugmentation && recipe.hue_enabled && absHue > 0 ? randomRange(rng, -absHue, absHue) : 0,
-    blurSigma: includeAugmentation && recipe.blur_enabled && absBlur > 0 ? randomRange(rng, 0.2, absBlur) : 0,
+    blurSigma: includeAugmentation && recipe.blur_enabled && absBlur > 0 ? randomRange(rng, 0, absBlur) : 0,
   }
 
   if (isIdentityTransform(transform)) {
@@ -1207,15 +1207,17 @@ async function writeSampleImage(sample: ResolvedSample, destinationPath: string)
 
   if (sample.transform?.grayscaleEnabled) pipeline = pipeline.grayscale()
 
-  const modulate: { brightness?: number; saturation?: number; hue?: number } = {}
-  if (sample.transform != null && Math.abs(sample.transform.brightnessDelta) >= 0.01) modulate.brightness = 1 + sample.transform.brightnessDelta
+  if (sample.transform != null && Math.abs(sample.transform.brightnessDelta) >= 0.01) {
+    pipeline = pipeline.linear(1, sample.transform.brightnessDelta * 255)
+  }
+
+  const modulate: { saturation?: number; hue?: number } = {}
   if (sample.transform != null && Math.abs(sample.transform.saturationDelta) >= 0.01) modulate.saturation = 1 + sample.transform.saturationDelta
   if (sample.transform != null && Math.abs(sample.transform.hueDelta) >= 0.5) modulate.hue = normalizeHue(sample.transform.hueDelta)
   if (Object.keys(modulate).length > 0) pipeline = pipeline.modulate(modulate)
 
   if (sample.transform != null && Math.abs(sample.transform.contrastDelta) >= 0.01) {
-    const contrastScale = 1 + sample.transform.contrastDelta
-    pipeline = pipeline.linear(contrastScale, 128 * (1 - contrastScale))
+    pipeline = pipeline.gamma(Math.max(0.1, 1 + sample.transform.contrastDelta))
   }
   if (sample.transform != null && sample.transform.blurSigma >= 0.1) {
     pipeline = pipeline.blur(sample.transform.blurSigma)

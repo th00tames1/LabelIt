@@ -44,10 +44,10 @@ const DEFAULT_RECIPE: AugmentationRecipe = {
   adjust_contrast_mode: 'stretch',
   horizontal_flip_enabled: true,
   vertical_flip_enabled: false,
-  rotate_cw90_enabled: true,
-  rotate_cw270_enabled: true,
-  rotate_enabled: false,
-  rotate_range: 0,
+  rotate_cw90_enabled: false,
+  rotate_cw270_enabled: false,
+  rotate_enabled: true,
+  rotate_range: 15,
   shear_enabled: false,
   shear_x_range: 0,
   shear_y_range: 0,
@@ -62,6 +62,8 @@ const DEFAULT_RECIPE: AugmentationRecipe = {
   blur_enabled: false,
   blur_range: 0,
 }
+
+const MULTIPLIER_OPTIONS = Array.from({ length: 7 }, (_, idx) => idx + 2)
 
 function cloneRecipe(recipe: AugmentationRecipe): AugmentationRecipe {
   return { ...recipe }
@@ -137,9 +139,9 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
   const [exportError, setExportError] = useState<string | null>(null)
 
   const text = language === 'ko'
-    ? {
+      ? {
         title: '마무리 워크스페이스',
-        subtitle: '라벨링 상태를 점검하고, 전처리/증강 버전을 만든 뒤 여러 형식으로 내보냅니다.',
+        subtitle: '데이터셋 상태를 점검하고, 전처리/증강 버전을 만든 뒤 원하는 형식으로 내보냅니다.',
         back: '← 라벨링',
         refresh: '새로고침',
         loading: '마무리 워크스페이스를 불러오는 중입니다...',
@@ -152,13 +154,13 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         },
         cards: {
           total: '전체 이미지',
-          ready: '내보내기 가능',
+          ready: '내보내기 준비 완료',
           unlabeled: '미라벨',
           unassigned: '분할 미지정',
           missingLabels: '클래스 미지정',
         },
-        blockers: '현재 해결할 항목',
-        blockerHint: '문제를 누르면 해당 이미지 목록이 펼쳐지고, 이미지를 누르면 바로 이동합니다.',
+        blockers: '해결이 필요한 항목',
+        blockerHint: '항목을 누르면 관련 이미지가 펼쳐지고, 이미지를 누르면 바로 라벨링 화면으로 이동합니다.',
         noBlockers: '지금 막히는 항목이 없습니다. 버전 생성과 내보내기를 진행해도 됩니다.',
         splitHealth: 'Split 구성',
         splitHealthHint: '현재 데이터셋이 train / val / test / unassigned에 어떻게 배치되어 있는지 보여줍니다.',
@@ -178,15 +180,18 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         },
         annotate: '열기',
         noImages: '현재 필터에 맞는 이미지가 없습니다.',
-        versionBuilder: '버전 구성',
+        versionBuilder: '버전 설정',
         versionName: '버전 이름',
         multiplier: '데이터 배수',
-        trainOnlyHint: '증강은 train 이미지에만 적용되고, 전처리는 모든 split에 반영됩니다.',
+        multiplierHint: 'train split이 몇 배로 늘어날지 설정합니다.',
+        multiplierDisabled: '증강을 하나 이상 켜면 배수를 조정할 수 있습니다.',
+        trainCopies: '{count}개의 증강 사본',
+        trainOnlyHint: '증강은 train split에만 적용되고, 전처리는 모든 split에 반영됩니다.',
         estimated: '예상 결과',
         preprocessingStep: '1단계 · 전처리',
-        preprocessingHint: '입력 이미지를 먼저 정리하는 단계입니다.',
+        preprocessingHint: '증강 전에 입력 이미지를 먼저 정리하는 단계입니다.',
         augmentationStep: '2단계 · 증강',
-        augmentationHint: '학습용 train 이미지 수를 늘리고 다양한 변형을 주는 단계입니다.',
+        augmentationHint: 'train split에 랜덤 변형을 쌓아 학습 데이터를 늘리는 단계입니다.',
         previewEmpty: '이미지를 업로드하면 여기에서 실제 미리보기를 볼 수 있습니다.',
         saveVersion: '버전 저장',
         updateVersion: '버전 업데이트',
@@ -212,7 +217,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         resizeBlack: '검은 여백',
         resizeWhite: '흰 여백',
         resizeStretch: '늘이기',
-        contrastStretch: '노출 보정',
+        contrastStretch: '대비 스트레칭',
         contrastEqualize: '히스토그램 평활화',
         exposure: '노출',
         rotate90: '시계 방향 90º',
@@ -227,7 +232,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
       }
     : {
         title: 'Finish Workspace',
-        subtitle: 'Review dataset health, build preprocessing and augmentation versions, then export multiple variants.',
+        subtitle: 'Review dataset health, create preprocessing and augmentation versions, then export them in multiple formats.',
         back: '← Annotate',
         refresh: 'Refresh',
         loading: 'Loading finish workspace...',
@@ -240,13 +245,13 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         },
         cards: {
           total: 'Total Images',
-          ready: 'Export Ready',
+          ready: 'Ready to Export',
           unlabeled: 'Unlabeled',
           unassigned: 'Unassigned Split',
-          missingLabels: 'Missing Classes',
+          missingLabels: 'Missing Labels',
         },
-        blockers: 'Current blockers',
-        blockerHint: 'Click a blocker to expand the affected images, then jump straight into annotation.',
+        blockers: 'Issues to Resolve',
+        blockerHint: 'Open an issue to review affected images, then jump straight back into annotation.',
         noBlockers: 'No major blockers found. You can move on to versioning and export.',
         splitHealth: 'Split health',
         splitHealthHint: 'Shows how the current dataset is distributed across train / val / test / unassigned.',
@@ -266,15 +271,18 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         },
         annotate: 'Open',
         noImages: 'No images match the current filters.',
-        versionBuilder: 'Version Builder',
+        versionBuilder: 'Version Settings',
         versionName: 'Version Name',
         multiplier: 'Dataset Multiplier',
-        trainOnlyHint: 'Augmentation applies to train only, while preprocessing affects every split.',
+        multiplierHint: 'Controls how many training images each source image turns into.',
+        multiplierDisabled: 'Enable at least one augmentation to change the multiplier.',
+        trainCopies: '{count} augmented copies',
+        trainOnlyHint: 'Augmentations apply only to the train split; preprocessing is applied to every split.',
         estimated: 'Estimated result',
         preprocessingStep: 'Step 1 · Preprocessing',
-        preprocessingHint: 'Clean and standardize the incoming images first.',
+        preprocessingHint: 'Clean and standardize images before augmentation.',
         augmentationStep: 'Step 2 · Augmentation',
-        augmentationHint: 'Expand train images with randomized transformations.',
+        augmentationHint: 'Stack randomized transforms onto train images to expand the dataset.',
         previewEmpty: 'Import images to unlock live previews here.',
         saveVersion: 'Save Version',
         updateVersion: 'Update Version',
@@ -300,7 +308,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         resizeBlack: 'Black Edges',
         resizeWhite: 'White Edges',
         resizeStretch: 'Stretch',
-        contrastStretch: 'Exposure Adjustment',
+        contrastStretch: 'Contrast Stretch',
         contrastEqualize: 'Histogram Equalization',
         exposure: 'Exposure',
         rotate90: 'Clockwise 90º',
@@ -471,7 +479,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         id: editingVersionId ?? undefined,
         name: versionName,
         preset: 'custom',
-        multiplier,
+        multiplier: hasAugmentationsEnabled ? multiplier : 1,
         recipe,
       })
       await loadWorkspace()
@@ -489,7 +497,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
     setActiveTab('versions')
     setEditingVersionId(version.id)
     setVersionName(version.name)
-    setMultiplier(version.multiplier)
+    setMultiplier(Math.max(2, version.multiplier))
     setRecipe(cloneRecipe({ ...DEFAULT_RECIPE, ...version.recipe }))
     setVersionMessage(null)
   }
@@ -755,7 +763,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                   <span style={fieldLabelStyle}>{text.multiplier}</span>
                   <div style={{ position: 'relative' }}>
                     <select value={multiplier} disabled={!hasAugmentationsEnabled} onChange={(e) => setMultiplier(Number(e.target.value))} style={{ ...inputStyle, appearance: 'none', paddingRight: 36, opacity: hasAugmentationsEnabled ? 1 : 0.6 }}>
-                      {Array.from({ length: 9 }, (_, idx) => idx + 2).map((value) => (
+                      {MULTIPLIER_OPTIONS.map((value) => (
                         <option key={value} value={value}>{`${value}x`}</option>
                       ))}
                     </select>
@@ -766,14 +774,14 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
 
               <div style={estimateCardStyle}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{text.estimated}</div>
-                <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 10, alignItems: 'center' }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.7 }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>
                     {language === 'ko' ? `Train: ${trainCount}장` : `Training Set: ${trainCount} images`}
-                  </div>
-                  <div style={{ fontSize: 18, color: 'var(--accent)', fontWeight: 800 }}>→</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.7, fontWeight: 700 }}>
+                  </span>
+                  <span style={{ margin: '0 8px', color: 'var(--accent)', fontSize: 18, fontWeight: 800 }}>→</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>
                     {language === 'ko' ? `${trainCount * effectiveMultiplier}장` : `${trainCount * effectiveMultiplier} images`}
-                  </div>
+                  </span>
                 </div>
                 <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{language === 'ko' ? `전체 예상: 약 ${estimatedTotal}장` : `Estimated total: about ${estimatedTotal} images`}</div>
                 <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>{text.trainOnlyHint}</div>
@@ -786,7 +794,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                   <TechniqueSummaryCard title={language === 'ko' ? '자동 방향 보정' : 'Auto-Orient'} description={language === 'ko' ? 'EXIF 회전 정보를 정리해 방향을 표준화합니다.' : 'Discard EXIF rotations and standardize orientation.'} enabled={recipe.auto_orient_enabled} summary={language === 'ko' ? '기본 방향 정리' : 'Normalize orientation'} onToggle={(enabled) => setTechniqueEnabled('auto_orient', enabled)} onClick={() => setActiveTechnique('auto_orient')} />
                   <TechniqueSummaryCard title={language === 'ko' ? '리사이즈' : 'Resize'} description={language === 'ko' ? '정사각형 크기와 여백 처리 방식을 지정합니다.' : 'Set target square size and aspect handling.'} enabled={recipe.resize_enabled} summary={`${recipe.resize_size}x${recipe.resize_size} · ${recipe.resize_mode === 'black_edges' ? text.resizeBlack : recipe.resize_mode === 'white_edges' ? text.resizeWhite : text.resizeStretch}`} onToggle={(enabled) => setTechniqueEnabled('resize', enabled)} onClick={() => setActiveTechnique('resize')} />
                   <TechniqueSummaryCard title={language === 'ko' ? '타일링' : 'Tiling'} description={language === 'ko' ? '이미지 픽셀 크기를 기준으로 타일을 나눕니다.' : 'Split the full image into pixel-based tiles.'} enabled={recipe.tiling_enabled} summary={`${recipe.tiling_grid}x${recipe.tiling_grid}`} onToggle={(enabled) => setTechniqueEnabled('tiling', enabled)} onClick={() => setActiveTechnique('tiling')} />
-                  <TechniqueSummaryCard title={language === 'ko' ? '대비 보정' : 'Adjust Contrast'} description={language === 'ko' ? '전처리 단계에서 대비를 자동 보정합니다.' : 'Apply preprocessing-time contrast enhancement.'} enabled={recipe.adjust_contrast_enabled} summary={recipe.adjust_contrast_mode === 'equalize' ? text.contrastEqualize : text.contrastStretch} onToggle={(enabled) => setTechniqueEnabled('adjust_contrast', enabled)} onClick={() => setActiveTechnique('adjust_contrast')} />
+                  <TechniqueSummaryCard title={language === 'ko' ? '자동 대비 보정' : 'Auto-Adjust Contrast'} description={language === 'ko' ? '전처리 단계에서 대비를 자동으로 보정합니다.' : 'Apply preprocessing-time contrast enhancement.'} enabled={recipe.adjust_contrast_enabled} summary={recipe.adjust_contrast_mode === 'equalize' ? text.contrastEqualize : text.contrastStretch} onToggle={(enabled) => setTechniqueEnabled('adjust_contrast', enabled)} onClick={() => setActiveTechnique('adjust_contrast')} />
                   <TechniqueSummaryCard title={language === 'ko' ? '흑백 변환' : 'Grayscale'} description={language === 'ko' ? '색 정보를 제거하고 명암 중심으로 만듭니다.' : 'Convert the image to grayscale.'} enabled={recipe.grayscale_enabled} summary={language === 'ko' ? '흑백 처리' : 'Monochrome'} onToggle={(enabled) => setTechniqueEnabled('grayscale', enabled)} onClick={() => setActiveTechnique('grayscale')} />
                 </div>
               </div>
@@ -804,6 +812,14 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                     onClick={() => setActiveTechnique('flip')}
                   />
                   <TechniqueSummaryCard
+                    title={language === 'ko' ? '회전' : 'Rotate'}
+                    description={language === 'ko' ? '최대 ±15º까지 자유 회전을 무작위로 적용합니다.' : 'Randomly rotate up to ±15º.'}
+                    enabled={recipe.rotate_enabled}
+                    summary={toMagnitudeLabel(recipe.rotate_range, 0, 'º')}
+                    onToggle={(enabled) => updateRecipe(enabled ? { rotate_enabled: true, rotate_range: 15 } : { rotate_enabled: false, rotate_range: 0 })}
+                    onClick={() => setActiveTechnique('rotate_free')}
+                  />
+                  <TechniqueSummaryCard
                     title={language === 'ko' ? '90º 회전' : 'Rotate 90º'}
                     description={language === 'ko' ? '시계 방향 90º, 270º 회전을 선택합니다.' : 'Enable clockwise 90º and 270º rotations.'}
                     enabled={recipe.rotate_cw90_enabled || recipe.rotate_cw270_enabled}
@@ -812,16 +828,8 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                     onClick={() => setActiveTechnique('rotate')}
                   />
                   <TechniqueSummaryCard
-                    title={language === 'ko' ? '회전' : 'Rotate'}
-                    description={language === 'ko' ? '0부터 ±15º까지 자유 회전을 설정합니다.' : 'Set free rotation from 0 to ±15º.'}
-                    enabled={recipe.rotate_enabled}
-                    summary={toMagnitudeLabel(recipe.rotate_range, 0, 'º')}
-                    onToggle={(enabled) => updateRecipe(enabled ? { rotate_enabled: true, rotate_range: 15 } : { rotate_enabled: false, rotate_range: 0 })}
-                    onClick={() => setActiveTechnique('rotate_free')}
-                  />
-                  <TechniqueSummaryCard
                     title={language === 'ko' ? '기울이기' : 'Shear'}
-                    description={language === 'ko' ? '0에서 시작해 최대 30º까지 기울이기 강도를 설정합니다.' : 'Set shear strength from 0 up to 30º.'}
+                    description={language === 'ko' ? '최대 ±15º까지 가로/세로 기울이기를 설정합니다.' : 'Set horizontal and vertical shear up to ±15º.'}
                     enabled={recipe.shear_enabled}
                     summary={`H ${toMagnitudeLabel(recipe.shear_x_range, 0, 'º')} / V ${toMagnitudeLabel(recipe.shear_y_range, 0, 'º')}`}
                     onToggle={(enabled) => setTechniqueEnabled('shear', enabled)}
@@ -861,7 +869,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                   />
                   <TechniqueSummaryCard
                     title={language === 'ko' ? '블러' : 'Blur'}
-                    description={language === 'ko' ? '0에서 시작해 최대 30%까지 블러 강도를 설정합니다.' : 'Set blur strength from 0 up to 30%.'}
+                    description={language === 'ko' ? '최대 3px까지 가우시안 블러를 적용합니다.' : 'Apply Gaussian blur up to 3px.'}
                     enabled={recipe.blur_enabled}
                     summary={`${recipe.blur_range.toFixed(1)}px`}
                     onToggle={(enabled) => setTechniqueEnabled('blur', enabled)}
@@ -1176,8 +1184,8 @@ function TechniqueModal({
       kind: 'grayscale',
     },
     adjust_contrast: {
-      title: language === 'ko' ? '대비 보정' : 'Adjust Contrast',
-      description: language === 'ko' ? '전처리 단계에서 대비를 자동 보정합니다.' : 'Apply preprocessing-time contrast enhancement.',
+      title: language === 'ko' ? '자동 대비 보정' : 'Auto-Adjust Contrast',
+      description: language === 'ko' ? '전처리 단계에서 대비를 자동으로 보정합니다.' : 'Apply preprocessing-time contrast enhancement.',
       kind: 'adjust_contrast',
     },
     flip: {
@@ -1192,12 +1200,12 @@ function TechniqueModal({
     },
     rotate_free: {
       title: language === 'ko' ? '회전' : 'Rotate',
-      description: language === 'ko' ? '0부터 ±15º까지 자유 회전을 설정합니다.' : 'Set free rotation from 0 to ±15º.',
+      description: language === 'ko' ? '최대 ±15º까지 자유 회전을 무작위로 적용합니다.' : 'Randomly rotate up to ±15º.',
       kind: 'rotate_free',
     },
     shear: {
       title: language === 'ko' ? '기울이기' : 'Shear',
-      description: language === 'ko' ? '0에서 시작해 최대 30º까지 기울이기 강도를 설정합니다.' : 'Set shear strength from 0 up to 30º.',
+      description: language === 'ko' ? '최대 ±15º까지 가로/세로 기울이기를 설정합니다.' : 'Set horizontal and vertical shear up to ±15º.',
       kind: 'shear',
     },
     brightness: {
@@ -1222,7 +1230,7 @@ function TechniqueModal({
     },
     blur: {
       title: language === 'ko' ? '블러' : 'Blur',
-      description: language === 'ko' ? '0에서 시작해 최대 30%까지 블러 강도를 설정합니다.' : 'Set blur strength from 0 up to 30%.',
+      description: language === 'ko' ? '최대 3px까지 가우시안 블러를 적용합니다.' : 'Apply Gaussian blur up to 3px.',
       kind: 'blur',
     },
   }
@@ -1300,7 +1308,7 @@ function TechniqueModal({
             <>
               <label style={modalCheckRowStyle}>
                 <input type="checkbox" checked={recipe.adjust_contrast_enabled} onChange={() => onToggleField('adjust_contrast_enabled')} />
-                <span>{language === 'ko' ? '대비 보정 사용' : 'Enable contrast adjustment'}</span>
+                <span>{language === 'ko' ? '자동 대비 보정 사용' : 'Enable auto-adjust contrast'}</span>
               </label>
               <OptionChips
                 label={language === 'ko' ? '방식' : 'MODE'}

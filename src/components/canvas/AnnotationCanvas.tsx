@@ -125,6 +125,10 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const [selectedSamCandidateIndex, setSelectedSamCandidateIndex] = useState(0)
   const [samSessionReady, setSamSessionReady] = useState(false)
   const [samSessionPreparing, setSamSessionPreparing] = useState(false)
+  const [samSelectedModelState, setSamSelectedModelState] = useState<'sam2.1' | 'sam3'>('sam2.1')
+  const [samPendingModel, setSamPendingModel] = useState<'sam2.1' | 'sam3' | null>(null)
+  const samAsyncVersionRef = useRef(0)
+  const samCommitPendingRef = useRef(false)
 
   const { annotations, selectedId, setSelectedId, createAnnotation, updateGeometry } =
     useAnnotationStore()
@@ -201,13 +205,18 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     return { x: Math.max(0, Math.min(1, nx)), y: Math.max(0, Math.min(1, ny)) }
   }, [imgX, imgY, image.width, image.height, scale])
 
-  const getPointerNorm = useCallback((): NormalizedPoint | null => {
+  const isPointerInsideImage = useCallback((stageX: number, stageY: number) => {
+    return stageX >= imgX && stageX <= imgX + dispW && stageY >= imgY && stageY <= imgY + dispH
+  }, [dispH, dispW, imgX, imgY])
+
+  const getPointerNorm = useCallback((strict = false): NormalizedPoint | null => {
     const stage = stageRef.current
     if (!stage) return null
     const pos = stage.getPointerPosition()
     if (!pos) return null
+    if (strict && !isPointerInsideImage(pos.x, pos.y)) return null
     return toNormalized(pos.x, pos.y)
-  }, [toNormalized])
+  }, [isPointerInsideImage, toNormalized])
 
   const getActiveLabelId = useCallback((): string | null => {
     return activeLabelClassId ?? labels[0]?.id ?? null
@@ -229,36 +238,48 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     if (samSessionReady && !force) return true
     const base64 = getImageBase64()
     if (!base64) return false
+    const version = samAsyncVersionRef.current
 
     setSamSessionPreparing(true)
     try {
-      await sidecarClient.samPrepareSession({
+      const result = await sidecarClient.samPrepareSession({
         image_key: image.id,
         image_base64: base64,
       })
+      if (version !== samAsyncVersionRef.current) return false
+      setSidecarRuntime(result.runtime)
       setSamSessionReady(true)
       return true
     } catch (err) {
+      if (version !== samAsyncVersionRef.current) return false
       console.warn('SAM session prepare failed:', err)
       setSamSessionReady(false)
       setSamError(err instanceof Error ? err.message : String(err))
       return false
     } finally {
-      setSamSessionPreparing(false)
+      if (version === samAsyncVersionRef.current) {
+        setSamSessionPreparing(false)
+      }
     }
   }, [getImageBase64, image.id, samSessionReady])
 
   // Run SAM prediction with current points (point-prompt mode)
   const runSAMPrediction = useCallback(async (points: SAMPoint[]) => {
     if (points.length === 0) {
+      samAsyncVersionRef.current += 1
       setSamContours(null)
       setSamCandidates([])
       setSelectedSamCandidateIndex(0)
+      setSamLastRun(null)
       setSamError(null)
+      setSamLoading(false)
+      setSamSessionPreparing(false)
       return
     }
+    const version = samAsyncVersionRef.current + 1
+    samAsyncVersionRef.current = version
     const ready = await prepareSAMSession()
-    if (!ready) return
+    if (!ready || version !== samAsyncVersionRef.current) return
     setSamLoading(true)
     setSamError(null)
     try {
@@ -268,6 +289,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         point_labels: points.map((p) => p.label),
         multimask: true,
       })
+      if (version !== samAsyncVersionRef.current) return
+      setSidecarRuntime(result.runtime)
       setSamCandidates(result.candidates ?? [{ contours: result.contours, score: result.score, area: 0 }])
       setSelectedSamCandidateIndex(0)
       setSamContours(result.contours)
@@ -278,6 +301,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         acceleration: result.runtime.acceleration,
       })
     } catch (err) {
+      if (version !== samAsyncVersionRef.current) return
       console.warn('SAM prediction failed:', err)
       setSamContours(null)
       setSamCandidates([])
@@ -285,7 +309,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
       setSamLastRun(null)
       setSamError(err instanceof Error ? err.message : String(err))
     } finally {
-      setSamLoading(false)
+      if (version === samAsyncVersionRef.current) {
+        setSamLoading(false)
+      }
     }
   }, [image.id, prepareSAMSession])
 
@@ -312,8 +338,10 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   // ─── Wheel zoom ─────────────────────────────────────────────────────────────
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault()
-    const stage = stageRef.current!
-    const pointer = stage.getPointerPosition()!
+    const stage = stageRef.current
+    if (!stage) return
+    const pointer = stage.getPointerPosition()
+    if (!pointer) return
     const factor = e.evt.deltaY < 0 ? 1.12 : 1 / 1.12
     const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * factor))
     applyScaleAt(newScale, pointer.x, pointer.y)
@@ -379,7 +407,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
   // ─── Click: polygon vertex placement + keypoint placement ────────────────────
   const handleStageClick = useCallback(async (e: Konva.KonvaEventObject<MouseEvent>) => {
-    const norm = getPointerNorm()
+    const norm = getPointerNorm(activeTool === 'sam')
     if (!norm) return
 
     if (e.evt.button !== 0) return
@@ -423,7 +451,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     if (activeTool !== 'sam') return
     e.evt.preventDefault()
-    const norm = getPointerNorm()
+    const norm = getPointerNorm(true)
     if (!norm) return
     setSelectedSamPointIndex(null)
     const newPoints = [...samPoints, { x: norm.x, y: norm.y, label: 0 as const }]
@@ -575,12 +603,6 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     return `${Math.round(value)}ms`
   }
 
-  const formatCandidateArea = (area: number) => {
-    if (area >= 1_000_000) return `${(area / 1_000_000).toFixed(2)}M px`
-    if (area >= 1_000) return `${(area / 1_000).toFixed(1)}k px`
-    return `${Math.round(area)} px`
-  }
-
   const getContourArea = (contour: [number, number][]) => {
     if (contour.length < 3) return 0
 
@@ -716,37 +738,54 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   })()
 
   const clearSAMState = useCallback(() => {
+    samAsyncVersionRef.current += 1
     setSamPoints([])
     setSamContours(null)
     setSamCandidates([])
     setSamLastRun(null)
     setSamError(null)
+    setSamLoading(false)
+    setSamSessionPreparing(false)
     setSelectedSamPointIndex(null)
     setSelectedSamCandidateIndex(0)
   }, [])
 
   const handleSamModelSwitch = useCallback(async (modelName: 'sam2.1' | 'sam3') => {
+    setSamSelectedModelState(modelName)
+    setSamPendingModel(modelName)
+    setSamSessionReady(false)
+    clearSAMState()
+    const version = samAsyncVersionRef.current
     try {
-      setSamSessionReady(false)
-      clearSAMState()
       const result = await sidecarClient.samSetModel({ model_name: modelName })
+      if (version !== samAsyncVersionRef.current) return
       setSidecarRuntime(result.runtime)
     } catch (err) {
+      if (version !== samAsyncVersionRef.current) return
+      setSamSelectedModelState((sidecarRuntime?.sam_model_preference ?? sidecarRuntime?.sam_model_name ?? 'sam2.1') as 'sam2.1' | 'sam3')
       setSamError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (version === samAsyncVersionRef.current) {
+        setSamPendingModel(null)
+      }
     }
-  }, [clearSAMState, setSidecarRuntime])
+  }, [clearSAMState, setSidecarRuntime, sidecarRuntime?.sam_model_name, sidecarRuntime?.sam_model_preference])
 
   const commitSAM = useCallback(async () => {
-    if (resolvedSamContours.length === 0) return
+    if (resolvedSamContours.length === 0 || samCommitPendingRef.current) return
+    samCommitPendingRef.current = true
     const labelId = getActiveLabelId()
     const geometry: AnnotationGeometry = {
       type: 'polygon',
       points: resolvedSamContours[0].map(([x, y]) => [x, y]),
     }
 
-    await createAndNotify(image.id, 'polygon', geometry, labelId)
-
-    clearSAMState()
+    try {
+      await createAndNotify(image.id, 'polygon', geometry, labelId)
+      clearSAMState()
+    } finally {
+      samCommitPendingRef.current = false
+    }
   }, [resolvedSamContours, createAndNotify, image.id, getActiveLabelId, clearSAMState])
 
   useEffect(() => {
@@ -772,6 +811,13 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     if (!loadedImg || !sidecarOnline || activeTool !== 'sam') return
     prepareSAMSession(true).catch(console.error)
   }, [activeTool, loadedImg, image.id, prepareSAMSession, sidecarOnline])
+
+  useEffect(() => {
+    const runtimeModel = sidecarRuntime?.sam_model_preference ?? sidecarRuntime?.sam_model_name
+    if (runtimeModel === 'sam2.1' || runtimeModel === 'sam3') {
+      setSamSelectedModelState(runtimeModel)
+    }
+  }, [sidecarRuntime?.sam_model_name, sidecarRuntime?.sam_model_preference])
 
   // Escape cancels in-progress drawing; Enter finishes current polygon or commits SAM
   useEffect(() => {
@@ -824,9 +870,23 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
     return []
   })()
-  const samRuntimeText = sidecarRuntime == null
-    ? 'SAM'
-    : sidecarRuntime.sam_model_label
+  const samHeaderMeta = samLastRun != null
+    ? formatSamMs(samLastRun.processingTimeMs)
+    : null
+  const samStatusText = samSessionPreparing
+    ? (language === 'ko' ? '세션 준비 중...' : 'Preparing session...')
+    : samLoading
+      ? (language === 'ko' ? '마스크 생성 중...' : 'Generating mask...')
+      : null
+  const samModelLabel = language === 'ko' ? '모델' : 'Model'
+  const samCandidateLabel = language === 'ko' ? '후보' : 'Candidates'
+  const samClearLabel = language === 'ko' ? '초기화' : 'Clear'
+  const samCommitLabel = language === 'ko' ? '확정' : 'Commit'
+  const samModelOptions = [
+    { value: 'sam2.1' as const, label: language === 'ko' ? 'SAM2 (빠름)' : 'SAM2 (fast)' },
+    { value: 'sam3' as const, label: language === 'ko' ? 'SAM3 (정밀)' : 'SAM3 (quality)' },
+  ]
+  const selectedSamModel = samPendingModel ?? samSelectedModelState
 
   const cursor =
     activeTool === 'bbox' || activeTool === 'polygon'
@@ -1047,16 +1107,16 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             pointerEvents: 'auto',
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
+            gap: 4,
           }}
         >
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', minWidth: 46 }}>
             {zoomPercent}%
           </span>
-          <button onClick={() => stepZoom('out')} style={zoomIconButtonStyle} title="Zoom out">-</button>
-          <button onClick={() => stepZoom('in')} style={zoomIconButtonStyle} title="Zoom in">+</button>
-          <button onClick={() => fitImage(stageSize.width, stageSize.height)} style={zoomResetButtonStyle}>
-            Reset
+          <button onClick={() => stepZoom('out')} style={zoomIconButtonStyle} title={language === 'ko' ? '축소' : 'Zoom out'}>-</button>
+          <button onClick={() => stepZoom('in')} style={zoomIconButtonStyle} title={language === 'ko' ? '확대' : 'Zoom in'}>+</button>
+          <button onClick={() => fitImage(stageSize.width, stageSize.height)} style={zoomResetButtonStyle} title={t('canvas.fit')}>
+            {t('canvas.fit')}
           </button>
         </div>
       </div>
@@ -1094,84 +1154,148 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             right: 16,
             background: 'var(--panel-floating)',
             border: '1px solid var(--border)',
-            borderRadius: 10,
-            padding: '8px 12px',
+            borderRadius: 12,
+            padding: 9,
             display: 'flex',
             flexDirection: 'column',
-            gap: 6,
-            width: 320,
+            gap: 7,
+            width: 232,
             maxWidth: 'calc(100% - 32px)',
             backdropFilter: 'blur(8px)',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+            boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
             zIndex: 10,
             pointerEvents: 'auto',
           }}
         >
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 10,
-            flexWrap: 'wrap',
-          }}>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-              {samLastRun ? `${t('sam.lastRunPrefix')}: ${formatSamMs(samLastRun.processingTimeMs)}` : null}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
-            <div style={{
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '4px 10px',
+              padding: '4px 8px',
               borderRadius: 999,
-              background: sidecarRuntime?.acceleration === 'gpu'
-                ? 'rgba(34,197,94,0.16)'
-                : 'rgba(245,158,11,0.16)',
-              border: sidecarRuntime?.acceleration === 'gpu'
-                ? '1px solid rgba(34,197,94,0.26)'
-                : '1px solid rgba(245,158,11,0.26)',
+              background: 'rgba(var(--accent-rgb),0.14)',
+              color: 'var(--accent)',
+              fontSize: 11,
+              fontWeight: 700,
             }}>
-              <span style={{
-                width: 7,
-                height: 7,
-                borderRadius: '50%',
-                background: sidecarRuntime?.sam_model_loaded ? '#22c55e' : '#f59e0b',
-              }} />
-              <span style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: 'var(--text-primary)',
-              }}>
-                {samRuntimeText}
-              </span>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-              {`${t('sam.devicePrefix')}: ${sidecarRuntime?.device_label ?? '-'}`}
-            </div>
-            </div>
+              {t('topbar.smartPolygonTool')}
+            </span>
+            {samHeaderMeta && <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{samHeaderMeta}</span>}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {(['sam2.1', 'sam3'] as const).map((modelName) => {
-              const active = sidecarRuntime?.sam_model_preference === modelName || sidecarRuntime?.sam_model_name === modelName
-              return (
-                <button
-                  key={modelName}
-                  onClick={() => handleSamModelSwitch(modelName)}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: 8,
-                    border: active ? '1px solid rgba(var(--accent-rgb),0.4)' : '1px solid var(--border)',
-                    background: active ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
-                    color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                    fontSize: 11,
-                    fontWeight: 700,
-                  }}
-                >
-                  {modelName === 'sam2.1' ? 'SAM2' : 'SAM3'}
-                </button>
-              )
-            })}
+          {samStatusText && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              {(samSessionPreparing || samLoading) && <span style={spinnerStyle} />}
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                {samStatusText}
+              </span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+                {samModelLabel}
+              </span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+                {samModelOptions.map((option) => {
+                  const active = selectedSamModel === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      onClick={() => handleSamModelSwitch(option.value).catch(console.error)}
+                      style={{
+                        minWidth: 0,
+                        minHeight: 32,
+                        padding: '6px 8px',
+                        borderRadius: 8,
+                        border: active ? '1px solid rgba(var(--accent-rgb),0.4)' : '1px solid var(--border)',
+                        background: active ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
+                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textAlign: 'center',
+                        lineHeight: 1.25,
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {samCandidates.length > 1 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+                  {samCandidateLabel}
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
+                  {samCandidates.map((candidate, index) => {
+                    const containsPositive = positiveSamPoints.length === 0
+                      ? true
+                      : candidate.contours.some((contour) => positiveSamPoints.every((point) => contourContainsPoint(contour, point)))
+                    const active = index === selectedSamCandidateIndex
+                    return (
+                      <button
+                        key={`sam-candidate-${index}`}
+                        onClick={() => applySamCandidate(index)}
+                        style={{
+                          minWidth: 0,
+                          padding: '6px 8px',
+                          borderRadius: 8,
+                          border: active ? '1px solid rgba(var(--accent-rgb),0.4)' : '1px solid var(--border)',
+                          background: active ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
+                          color: active ? 'var(--accent)' : (containsPositive ? 'var(--text-secondary)' : '#fca5a5'),
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {index + 1}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+            <button
+              onClick={clearSAMState}
+              disabled={samPoints.length === 0}
+              style={{
+                height: 30,
+                padding: '0 10px',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: 'var(--bg-tertiary)',
+                color: 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: samPoints.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: samPoints.length === 0 ? 0.45 : 1,
+              }}
+            >
+              {samClearLabel}
+            </button>
+            <button
+              onClick={() => commitSAM().catch(console.error)}
+              disabled={resolvedSamContours.length === 0}
+              style={{
+                height: 30,
+                padding: '0 12px',
+                borderRadius: 8,
+                border: 'none',
+                background: resolvedSamContours.length > 0 ? '#22c55e' : 'rgba(34,197,94,0.28)',
+                color: resolvedSamContours.length > 0 ? '#07140d' : 'rgba(7,20,13,0.6)',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: resolvedSamContours.length === 0 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {samCommitLabel}
+            </button>
           </div>
 
           {sidecarRuntime?.nvidia_gpu_detected && !sidecarRuntime.cuda_available && (
@@ -1180,73 +1304,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             </div>
           )}
 
-          {samCandidates.length > 1 && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {samCandidates.map((candidate, index) => {
-                const active = index === selectedSamCandidateIndex
-                const containsPositive = positiveSamPoints.length === 0
-                  ? true
-                  : candidate.contours.some((contour) => positiveSamPoints.every((point) => contourContainsPoint(contour, point)))
-                return (
-                  <button
-                    key={`sam-candidate-${index}`}
-                    onClick={() => applySamCandidate(index)}
-                    style={{
-                      padding: '5px 9px',
-                      borderRadius: 8,
-                      border: active ? '1px solid rgba(var(--accent-rgb),0.42)' : '1px solid var(--border)',
-                      background: active ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
-                      color: active ? 'var(--accent)' : (containsPositive ? 'var(--text-secondary)' : '#fca5a5'),
-                      fontSize: 11,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {`${language === 'ko' ? '후보' : 'Candidate'} ${index + 1} · ${formatCandidateArea(candidate.area)}${containsPositive ? '' : language === 'ko' ? ' · 포인트 불일치' : ' · prompt mismatch'}`}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Status + commit row */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
-              {(samSessionPreparing || samLoading) && <span style={spinnerStyle} />}
-              {samSessionPreparing
-                ? (language === 'ko' ? 'SAM 세션 준비 중...' : 'Preparing SAM session...')
-                : samLoading
-                ? (language === 'ko' ? 'SAM 실행 중 (CPU에서는 느릴 수 있음)...' : 'SAM running (may take longer on CPU)...')
-                : samCandidates.length > 0
-                ? (language === 'ko'
-                  ? `${samCandidates.length}개 후보 준비됨 - 선택 후 Enter 또는 Commit 클릭`
-                  : `${samCandidates.length} candidate(s) ready - choose one, then press Enter or click Commit`)
-                : (language === 'ko'
-                  ? t('sam.clickHint')
-                  : t('sam.clickHint'))}
-            </span>
-            {resolvedSamContours.length > 0 && (
-              <button
-                onClick={() => commitSAM().catch(console.error)}
-                style={{
-                  background: '#22c55e',
-                  color: '#07140d',
-                  border: 'none',
-                  borderRadius: 6,
-                  padding: '4px 12px',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  marginLeft: 8,
-                }}
-              >
-                  {language === 'ko' ? `✓ 확정 (${resolvedSamContours.length})` : `✓ Commit (${resolvedSamContours.length})`}
-                </button>
-              )}
-            </div>
-
           {samError && (
             <div style={{
-              padding: '8px 10px',
+              padding: '7px 9px',
               borderRadius: 8,
               background: 'rgba(239,68,68,0.12)',
               border: '1px solid rgba(239,68,68,0.28)',

@@ -102,6 +102,7 @@ const api = {
 
   sidecar: {
     getStatus: () => ipcRenderer.invoke('sidecar:getStatus'),
+    ensureStarted: () => ipcRenderer.invoke('sidecar:ensureStarted'),
   },
 
   yolo: {

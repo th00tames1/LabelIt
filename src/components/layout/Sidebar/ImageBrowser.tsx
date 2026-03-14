@@ -16,7 +16,7 @@ interface Props {
   images: Image[]
   activeImageId: string | null
   onSelectImage: (id: string) => void
-  onImportComplete: (images: Image[]) => void
+  onImportComplete: (images: Image[]) => Promise<void> | void
 }
 
 interface ContextMenu {
@@ -184,8 +184,8 @@ function ImageItem({
             {image.annotation_count > 0 && (
               <span style={{
                 marginLeft: 'auto', fontSize: 9, fontWeight: 700,
-                background: 'rgba(var(--accent-rgb),0.14)', color: '#ffd7c5',
-                border: '1px solid rgba(var(--accent-rgb),0.26)',
+                background: 'rgba(var(--accent-rgb),0.18)', color: 'var(--text-primary)',
+                border: '1px solid rgba(var(--accent-rgb),0.34)',
                 borderRadius: 10, padding: '0px 5px',
               }}>
                 {image.annotation_count}
@@ -199,7 +199,6 @@ function ImageItem({
 }
 
 export default function ImageBrowser({ images, activeImageId, onSelectImage, onImportComplete }: Props) {
-  const setImages = useImageStore((s) => s.setImages)
   const updateImageInList = useImageStore((s) => s.updateImageInList)
   const setImporting = useUIStore((s) => s.setImporting)
   const isImporting = useUIStore((s) => s.isImporting)
@@ -253,40 +252,52 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
   }
 
   const handleImportFiles = useCallback(async () => {
-    const filePaths = await imageApi.showOpenDialog()
-    if (!filePaths) return
-    setImporting(true)
-    await imageApi.import(filePaths)
-    const updated = await imageApi.list()
-    setImages(updated)
-    onImportComplete(updated)
-    setImporting(false)
-  }, [setImages, setImporting, onImportComplete])
+    try {
+      const filePaths = await imageApi.showOpenDialog()
+      if (!filePaths) return
+      setImporting(true)
+      await imageApi.import(filePaths)
+      const updated = await imageApi.list()
+      await onImportComplete(updated)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setImporting(false)
+    }
+  }, [setImporting, onImportComplete])
 
   const handleImportFolder = useCallback(async () => {
-    const folderPath = await imageApi.showFolderDialog()
-    if (!folderPath) return
-    setImporting(true)
-    await imageApi.importFolder(folderPath)
-    const updated = await imageApi.list()
-    setImages(updated)
-    onImportComplete(updated)
-    setImporting(false)
-  }, [setImages, setImporting, onImportComplete])
+    try {
+      const folderPath = await imageApi.showFolderDialog()
+      if (!folderPath) return
+      setImporting(true)
+      await imageApi.importFolder(folderPath)
+      const updated = await imageApi.list()
+      await onImportComplete(updated)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setImporting(false)
+    }
+  }, [setImporting, onImportComplete])
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
-    const files = Array.from(e.dataTransfer.files)
-      .filter((f) => /\.(jpg|jpeg|png|bmp|webp|tiff|tif)$/i.test(f.name))
-      .map((f) => (f as File & { path: string }).path)
-    if (files.length === 0) return
-    setImporting(true)
-    await imageApi.import(files)
-    const updated = await imageApi.list()
-    setImages(updated)
-    onImportComplete(updated)
-    setImporting(false)
-  }, [setImages, setImporting, onImportComplete])
+    try {
+      const files = Array.from(e.dataTransfer.files)
+        .filter((f) => /\.(jpg|jpeg|png|bmp|webp|tiff|tif)$/i.test(f.name))
+        .map((f) => (f as File & { path: string }).path)
+      if (files.length === 0) return
+      setImporting(true)
+      await imageApi.import(files)
+      const updated = await imageApi.list()
+      await onImportComplete(updated)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setImporting(false)
+    }
+  }, [setImporting, onImportComplete])
 
   const filteredImages = images.filter((image) => {
     const matchesStatus = viewStatus === 'all' || image.status === viewStatus || (viewStatus === 'labeled' && image.status === 'in_progress')

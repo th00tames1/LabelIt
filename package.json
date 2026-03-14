@@ -71,10 +71,10 @@
         "to": "python",
         "filter": [
           "**/*",
+          ".venv/**/*",
           "!**/__pycache__/**",
           "!**/*.pyc",
-          "!**/*.pyo",
-          "!.venv/**"
+          "!**/*.pyo"
         ]
       }
     ],
@@ -105,9 +105,6 @@
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "license": "resources/LICENSE.txt",
-      "installerLanguages": [
-        "English"
-      ],
       "language": "1033"
     },
     "compression": "maximum",

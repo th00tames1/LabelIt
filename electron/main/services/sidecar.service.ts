@@ -27,7 +27,7 @@ class SidecarService {
       return
     }
 
-    const scriptDir = join(app.getAppPath(), 'python')
+    const scriptDir = this.resolvePythonDir()
     if (!existsSync(scriptDir)) {
       this._status = 'error'
       console.warn('Python sidecar directory not found — AI features disabled')
@@ -88,7 +88,7 @@ class SidecarService {
       return
     }
 
-    const scriptDir = join(app.getAppPath(), 'python')
+    const scriptDir = this.resolvePythonDir()
     if (!existsSync(scriptDir)) {
       this._status = 'error'
       console.warn('Python sidecar directory not found — AI features disabled')
@@ -157,11 +157,23 @@ class SidecarService {
     await this.start()
   }
 
+  private resolvePythonDir(): string {
+    const appPath = app.getAppPath()
+    const candidates = [
+      join(appPath, 'python'),
+      join(appPath, '..', 'python'),
+      join(process.resourcesPath, 'python'),
+    ]
+
+    return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
+  }
+
   private resolvePythonPath(): string | null {
     const appPath = app.getAppPath()
+    const pythonDir = this.resolvePythonDir()
 
     // 1. Bundled venv (production)
-    const bundledPython = join(appPath, '..', 'python', '.venv', 'Scripts', 'python.exe')
+    const bundledPython = join(pythonDir, '.venv', 'Scripts', 'python.exe')
     if (existsSync(bundledPython)) return bundledPython
 
     // 2. Local venv (development)

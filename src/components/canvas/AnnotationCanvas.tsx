@@ -16,6 +16,7 @@ import BBoxPreview from './tools/BBoxPreview'
 import PolygonPreview from './tools/PolygonPreview'
 import { toLocalFileUrl } from '../../utils/paths'
 import { useI18n } from '../../i18n'
+import Sam3DownloadModal from './Sam3DownloadModal'
 
 interface Props {
   image: Image
@@ -133,6 +134,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const [samSessionPreparing, setSamSessionPreparing] = useState(false)
   const [samSelectedModelState, setSamSelectedModelState] = useState<'sam2.1' | 'sam3'>('sam2.1')
   const [samPendingModel, setSamPendingModel] = useState<'sam2.1' | 'sam3' | null>(null)
+  const [showSam3Download, setShowSam3Download] = useState(false)
   const samAsyncVersionRef = useRef(0)
   const samCommitPendingRef = useRef(false)
 
@@ -1228,10 +1230,20 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
                 {samModelOptions.map((option) => {
                   const active = selectedSamModel === option.value
+                  // SAM3 is only selectable if the model file exists in the models folder.
+                  // If not available (or runtime not yet reported), show the download dialog.
+                  const sam3NotReady = option.value === 'sam3' && sidecarRuntime?.sam3_available !== true
                   return (
                     <button
                       key={option.value}
-                      onClick={() => handleSamModelSwitch(option.value).catch(console.error)}
+                      onClick={() => {
+                        if (sam3NotReady) {
+                          setShowSam3Download(true)
+                        } else {
+                          handleSamModelSwitch(option.value).catch(console.error)
+                        }
+                      }}
+                      title={sam3NotReady ? t('setup.sam3Title') : undefined}
                       style={{
                         minWidth: 0,
                         minHeight: 32,
@@ -1239,14 +1251,27 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
                         borderRadius: 8,
                         border: active ? '1px solid rgba(var(--accent-rgb),0.4)' : '1px solid var(--border)',
                         background: active ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
-                        color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                        color: active ? 'var(--accent)' : sam3NotReady ? 'var(--text-muted)' : 'var(--text-secondary)',
                         fontSize: 11,
                         fontWeight: 700,
                         textAlign: 'center',
                         lineHeight: 1.25,
+                        position: 'relative',
                       }}
                     >
                       {option.label}
+                      {sam3NotReady && (
+                        <span style={{
+                          position: 'absolute',
+                          top: 2,
+                          right: 3,
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: 'var(--accent)',
+                          opacity: 0.7,
+                        }} />
+                      )}
                     </button>
                   )
                 })}
@@ -1347,6 +1372,11 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             </div>
           )}
         </div>
+      )}
+
+      {/* SAM3 download dialog — shown when user clicks SAM3 model button and sam3.pt is not installed */}
+      {showSam3Download && (
+        <Sam3DownloadModal onClose={() => setShowSam3Download(false)} />
       )}
     </div>
   )

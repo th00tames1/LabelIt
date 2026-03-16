@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { setupApi } from '../../api/ipc'
+import { useI18n } from '../../i18n'
 
 interface Props {
   onDone: () => void
@@ -9,10 +10,12 @@ interface Props {
 interface Progress {
   message: string
   percent: number
+  eta?: string
   error?: string
 }
 
 export default function AiSetupModal({ onDone, onSkip }: Props) {
+  const { language, t } = useI18n()
   const [phase, setPhase] = useState<'prompt' | 'running' | 'done' | 'error'>('prompt')
   const [progress, setProgress] = useState<Progress | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
@@ -26,14 +29,14 @@ export default function AiSetupModal({ onDone, onSkip }: Props) {
 
   const startSetup = async () => {
     setPhase('running')
-    setProgress({ message: '시작 중...', percent: 0 })
+    setProgress({ message: language === 'ko' ? '시작 중...' : 'Starting...', percent: 0 })
 
     unsubRef.current = setupApi.onProgress((p) => {
       setProgress(p)
     })
 
     try {
-      await setupApi.run()
+      await setupApi.run(language)
       setPhase('done')
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err))
@@ -68,27 +71,22 @@ export default function AiSetupModal({ onDone, onSkip }: Props) {
         }}
       >
         {/* Header */}
-        <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>
-          🤖 AI 기능 설정
+        <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 16 }}>
+          {t('setup.title')}
         </div>
 
         {/* Prompt phase */}
         {phase === 'prompt' && (
           <>
-            <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 24 }}>
-              AI 기능(SAM 자동 분할, YOLO 자동 라벨링)을 사용하려면 Python 패키지 설치가 필요합니다.
-              <br /><br />
-              설치 중 인터넷 연결이 필요하며, GPU 감지에 따라 PyTorch CUDA (~2–3 GB) 또는
-              CPU 버전 (~500 MB)을 다운로드합니다.
-              <br /><br />
-              <strong style={{ color: 'var(--text-primary)' }}>지금 설치하시겠습니까?</strong>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.75, marginBottom: 24, whiteSpace: 'pre-line' }}>
+              {t('setup.promptDescription')}
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={onSkip} style={btnStyle('secondary')}>
-                나중에
+                {t('setup.later')}
               </button>
               <button onClick={startSetup} style={btnStyle('primary')}>
-                설치 시작
+                {t('setup.installNow')}
               </button>
             </div>
           </>
@@ -97,12 +95,17 @@ export default function AiSetupModal({ onDone, onSkip }: Props) {
         {/* Running phase */}
         {phase === 'running' && progress && (
           <>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, whiteSpace: 'pre-line' }}>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8, whiteSpace: 'pre-line', lineHeight: 1.6 }}>
               {progress.message}
             </p>
             <ProgressBar percent={progress.percent} />
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12 }}>
-              창을 닫지 마세요. 완료될 때까지 기다려 주세요.
+            {progress.eta && (
+              <p style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6, fontWeight: 600 }}>
+                {progress.eta}
+              </p>
+            )}
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
+              {t('setup.waiting')}
             </p>
           </>
         )}
@@ -110,12 +113,12 @@ export default function AiSetupModal({ onDone, onSkip }: Props) {
         {/* Done phase */}
         {phase === 'done' && (
           <>
-            <p style={{ fontSize: 14, color: '#22c55e', marginBottom: 24 }}>
-              ✅ AI 패키지 설치가 완료되었습니다! 앱을 재시작하면 AI 기능이 활성화됩니다.
+            <p style={{ fontSize: 14, color: '#22c55e', marginBottom: 24, lineHeight: 1.65 }}>
+              {t('setup.done')}
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={onDone} style={btnStyle('primary')}>
-                확인
+                {t('setup.ok')}
               </button>
             </div>
           </>
@@ -124,8 +127,8 @@ export default function AiSetupModal({ onDone, onSkip }: Props) {
         {/* Error phase */}
         {phase === 'error' && (
           <>
-            <p style={{ fontSize: 14, color: '#ef4444', marginBottom: 8 }}>
-              ❌ 설치 중 오류가 발생했습니다.
+            <p style={{ fontSize: 14, color: '#ef4444', marginBottom: 8, fontWeight: 700 }}>
+              {t('setup.errorTitle')}
             </p>
             <pre
               style={{
@@ -138,21 +141,20 @@ export default function AiSetupModal({ onDone, onSkip }: Props) {
                 wordBreak: 'break-all',
                 maxHeight: 150,
                 overflow: 'auto',
-                marginBottom: 20,
+                marginBottom: 14,
               }}
             >
               {errorMsg}
             </pre>
-            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 20 }}>
-              Python 3.10 이상이 설치되어 있는지 확인하거나, 수동으로{' '}
-              <code>python/.venv</code>를 생성 후 <code>requirements.txt</code>를 설치해주세요.
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.6 }}>
+              {t('setup.errorHint')}
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={onSkip} style={btnStyle('secondary')}>
-                닫기
+                {t('setup.close')}
               </button>
               <button onClick={startSetup} style={btnStyle('primary')}>
-                다시 시도
+                {t('setup.retry')}
               </button>
             </div>
           </>

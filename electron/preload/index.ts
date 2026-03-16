@@ -124,13 +124,16 @@ const api = {
 
   setup: {
     isNeeded: (): Promise<boolean> => ipcRenderer.invoke('setup:isNeeded'),
-    run: (): Promise<void> => ipcRenderer.invoke('setup:run'),
-    onProgress: (callback: (progress: { message: string; percent: number; error?: string }) => void) => {
+    run: (lang: string): Promise<void> => ipcRenderer.invoke('setup:run', lang),
+    onProgress: (callback: (progress: { message: string; percent: number; eta?: string; error?: string }) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: unknown) =>
-        callback(progress as { message: string; percent: number; error?: string })
+        callback(progress as { message: string; percent: number; eta?: string; error?: string })
       ipcRenderer.on('setup:progress', listener)
       return () => ipcRenderer.removeListener('setup:progress', listener)
     },
+    getModelsDir: (): Promise<string> => ipcRenderer.invoke('setup:getModelsDir'),
+    openModelsDir: (): Promise<void> => ipcRenderer.invoke('setup:openModelsDir'),
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke('setup:openExternal', url),
   },
 }
 

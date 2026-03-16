@@ -29,6 +29,8 @@ export interface SidecarRuntimeInfo {
   sam_model_label: string
   sam_model_loaded: boolean
   sam_text_model_loaded: boolean
+  sam2_available: boolean
+  sam3_available: boolean
   setup_hint: string | null
 }
 

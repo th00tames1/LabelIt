@@ -6,15 +6,56 @@ import https from 'https'
 import http from 'http'
 import type { IncomingMessage } from 'http'
 
+type Lang = 'en' | 'ko'
+
 export type SetupStatus = 'idle' | 'running' | 'done' | 'error'
 
 export interface SetupProgress {
   message: string
   percent: number  // 0–100, or -1 on fatal error
+  eta?: string     // e.g. "2m 30s" — only present during file downloads
   error?: string
 }
 
 type ProgressCallback = (p: SetupProgress) => void
+
+// ── Bilingual messages ────────────────────────────────────────────────────────
+
+const T: Record<string, Record<Lang, string>> = {
+  findingPython:    { en: 'Finding Python interpreter...',                   ko: 'Python 인터프리터 찾는 중...' },
+  usingEmbedded:    { en: 'Using embedded Python...',                        ko: 'Python 임베디드 버전 사용 중...' },
+  downloadPython:   { en: 'Downloading Python 3.12 (~10 MB)...',             ko: 'Python 3.12 다운로드 중 (~10 MB)...' },
+  extractPython:    { en: 'Extracting Python...',                            ko: 'Python 압축 해제 중...' },
+  bootstrapPip:     { en: 'Bootstrapping pip...',                            ko: 'pip 부트스트랩 중...' },
+  creatingVenv:     { en: 'Creating virtual environment...',                 ko: '가상 환경 생성 중...' },
+  upgradePip:       { en: 'Upgrading pip...',                                ko: 'pip 업데이트 중...' },
+  detectGpu:        { en: 'Detecting GPU...',                                ko: 'GPU 감지 중...' },
+  pytorchCuda:      {
+    en: 'Installing PyTorch (CUDA 12.4)...\nLarge file, this may take several minutes (~2-3 GB).',
+    ko: 'PyTorch (CUDA 12.4) 설치 중...\n파일 크기가 커서 시간이 걸릴 수 있습니다 (~2-3 GB).',
+  },
+  pytorchCpu:       { en: 'Installing PyTorch (CPU)... (~500 MB)',           ko: 'PyTorch (CPU) 설치 중... (~500 MB)' },
+  packages:         { en: 'Installing remaining packages...',                ko: '나머지 패키지 설치 중...' },
+  sam2Download:     { en: 'Downloading SAM2 model (~39 MB)...',              ko: 'SAM2 모델 다운로드 중 (~39 MB)...' },
+  done:             { en: 'Installation complete!',                          ko: '설치 완료!' },
+  pythonNotFound:   {
+    en: 'Python 3.10+ not found. Please install Python from python.org and try again.',
+    ko: 'Python 3.10 이상을 찾을 수 없습니다. python.org에서 Python을 설치한 뒤 다시 시도해주세요.',
+  },
+}
+
+function msg(lang: Lang, key: string): string {
+  return T[key]?.[lang] ?? T[key]?.['en'] ?? key
+}
+
+function formatEta(seconds: number, lang: Lang): string {
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  const time = m > 0 ? `${m}m ${s}s` : `${s}s`
+  return lang === 'ko' ? `남은 시간: ${time}` : `${time} remaining`
+}
+
+// ── Service ───────────────────────────────────────────────────────────────────
 
 class PythonSetupService {
   private _status: SetupStatus = 'idle'
@@ -46,11 +87,11 @@ class PythonSetupService {
     }
   }
 
-  async run(): Promise<void> {
+  async run(lang: Lang = 'en'): Promise<void> {
     if (this._status === 'running') return
     this._status = 'running'
     try {
-      await this.doSetup()
+      await this.doSetup(lang)
       this._status = 'done'
     } catch (err) {
       this._status = 'error'
@@ -61,8 +102,7 @@ class PythonSetupService {
   // ── Private ──────────────────────────────────────────────────────────────────
 
   /**
-   * The venv lives in the user's AppData, not in Program Files.
-   * This is writable even when the app is installed system-wide.
+   * Venv lives in the user's AppData — writable even when the app is installed system-wide.
    *   %APPDATA%\LabelIt\python-venv\
    */
   private getVenvDir(): string {
@@ -87,6 +127,11 @@ class PythonSetupService {
       : join(this.getPythonScriptsDir(), 'pip')
   }
 
+  /** SAM models dir — user-writable, matches LABELING_TOOL_MODELS_DIR env var in sidecar. */
+  private getModelsDir(): string {
+    return join(app.getPath('userData'), 'models')
+  }
+
   /** Python scripts/resources bundled with the app (read-only in production). */
   private getPythonResourceDir(): string {
     const appPath = app.getAppPath()
@@ -100,20 +145,18 @@ class PythonSetupService {
     return join(appPath, 'python')
   }
 
-  private async doSetup(): Promise<void> {
+  private async doSetup(lang: Lang): Promise<void> {
     // 1. Find / acquire a base Python ≥ 3.10
-    this.emit({ message: 'Python 인터프리터 찾는 중...', percent: 5 })
-    const basePython = await this.findOrAcquirePython()
+    this.emit({ message: msg(lang, 'findingPython'), percent: 5 })
+    const basePython = await this.findOrAcquirePython(lang)
     if (!basePython) {
-      throw new Error(
-        'Python 3.10 이상을 찾을 수 없습니다. python.org에서 Python을 설치한 뒤 다시 시도해주세요.',
-      )
+      throw new Error(msg(lang, 'pythonNotFound'))
     }
 
     // 2. Create venv in user-writable %APPDATA%\LabelIt\python-venv
     const venvDir = this.getVenvDir()
     if (!existsSync(venvDir)) {
-      this.emit({ message: '가상 환경 생성 중...', percent: 15 })
+      this.emit({ message: msg(lang, 'creatingVenv'), percent: 15 })
       mkdirSync(venvDir, { recursive: true })
       // Try stdlib venv first; fall back to virtualenv (needed for embedded Python)
       try {
@@ -128,25 +171,22 @@ class PythonSetupService {
     const venvPip = this.getVenvPip()
 
     // 3. Upgrade pip inside the venv
-    this.emit({ message: 'pip 업데이트 중...', percent: 20 })
+    this.emit({ message: msg(lang, 'upgradePip'), percent: 20 })
     await this.exec(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip', '-q'])
 
     // 4. Detect GPU → install matching PyTorch build
-    this.emit({ message: 'GPU 감지 중...', percent: 25 })
+    this.emit({ message: msg(lang, 'detectGpu'), percent: 25 })
     const hasCuda = this.detectCuda()
 
     if (hasCuda) {
-      this.emit({
-        message: 'PyTorch (CUDA 12.4) 설치 중...\n파일 크기가 커서 시간이 걸릴 수 있습니다 (~2–3 GB).',
-        percent: 30,
-      })
+      this.emit({ message: msg(lang, 'pytorchCuda'), percent: 30 })
       await this.exec(venvPip, [
         'install', 'torch', 'torchvision',
         '--index-url', 'https://download.pytorch.org/whl/cu124',
         '-q',
       ])
     } else {
-      this.emit({ message: 'PyTorch (CPU) 설치 중... (~500 MB)', percent: 30 })
+      this.emit({ message: msg(lang, 'pytorchCpu'), percent: 30 })
       await this.exec(venvPip, [
         'install', 'torch', 'torchvision',
         '--index-url', 'https://download.pytorch.org/whl/cpu',
@@ -155,15 +195,34 @@ class PythonSetupService {
     }
 
     // 5. Install the rest of requirements.txt (from read-only app resources)
-    this.emit({ message: '나머지 패키지 설치 중...', percent: 72 })
+    this.emit({ message: msg(lang, 'packages'), percent: 70 })
     const reqPath = join(this.getPythonResourceDir(), 'requirements.txt')
     await this.exec(venvPip, ['install', '-r', reqPath, '-q'])
 
-    this.emit({ message: '설치 완료!', percent: 100 })
+    // 6. Download SAM2 model if not already present
+    const modelsDir = this.getModelsDir()
+    const sam2Path = join(modelsDir, 'sam2.1_b.pt')
+    if (!existsSync(sam2Path)) {
+      mkdirSync(modelsDir, { recursive: true })
+      const baseMsg = msg(lang, 'sam2Download')
+      this.emit({ message: baseMsg, percent: 78 })
+      await this.downloadFile(
+        'https://github.com/ultralytics/assets/releases/download/v8.3.0/sam2.1_b.pt',
+        sam2Path,
+        (pct, eta) => this.emit({
+          message: `${baseMsg}\n${pct}%`,
+          percent: Math.round(78 + pct * 0.14),
+          eta,
+        }),
+        lang,
+      )
+    }
+
+    this.emit({ message: msg(lang, 'done'), percent: 100 })
   }
 
   /** Find an existing Python 3.10+ on the system, or download the embeddable build. */
-  private async findOrAcquirePython(): Promise<string | null> {
+  private async findOrAcquirePython(lang: Lang): Promise<string | null> {
     // Common Windows Python / Conda installations
     if (process.platform === 'win32') {
       const home = process.env.USERPROFILE || ''
@@ -199,7 +258,7 @@ class PythonSetupService {
 
     // Last resort on Windows: download Python 3.12 embeddable
     if (process.platform === 'win32') {
-      return this.acquireEmbeddedPython()
+      return this.acquireEmbeddedPython(lang)
     }
 
     return null
@@ -224,31 +283,33 @@ class PythonSetupService {
    * Download Python 3.12 embeddable for Windows, bootstrap pip, and return the
    * path to python.exe so we can create a proper venv from it.
    */
-  private async acquireEmbeddedPython(): Promise<string | null> {
+  private async acquireEmbeddedPython(lang: Lang): Promise<string | null> {
     const embedDir = join(app.getPath('userData'), 'python-embed')
     const pythonExe = join(embedDir, 'python.exe')
 
     if (existsSync(pythonExe)) {
-      this.emit({ message: 'Python 임베디드 버전 사용 중...', percent: 8 })
+      this.emit({ message: msg(lang, 'usingEmbedded'), percent: 8 })
       return pythonExe
     }
 
     mkdirSync(embedDir, { recursive: true })
 
     // Download embeddable zip (~10 MB)
-    this.emit({ message: 'Python 3.12 다운로드 중 (~10 MB)...', percent: 6 })
+    this.emit({ message: msg(lang, 'downloadPython'), percent: 6 })
     const zipPath = join(embedDir, 'python-embed.zip')
     await this.downloadFile(
       'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip',
       zipPath,
-      (pct) => this.emit({
-        message: `Python 다운로드 중... ${pct}%`,
+      (pct, eta) => this.emit({
+        message: `${msg(lang, 'downloadPython')}\n${pct}%`,
         percent: Math.round(6 + pct * 0.05),
+        eta,
       }),
+      lang,
     )
 
     // Extract via PowerShell
-    this.emit({ message: 'Python 압축 해제 중...', percent: 11 })
+    this.emit({ message: msg(lang, 'extractPython'), percent: 11 })
     await this.exec('powershell', [
       '-NoProfile', '-Command',
       `Expand-Archive -Path "${zipPath}" -DestinationPath "${embedDir}" -Force`,
@@ -263,9 +324,9 @@ class PythonSetupService {
     }
 
     // Bootstrap pip via get-pip.py
-    this.emit({ message: 'pip 부트스트랩 중...', percent: 12 })
+    this.emit({ message: msg(lang, 'bootstrapPip'), percent: 12 })
     const getPipPath = join(embedDir, 'get-pip.py')
-    await this.downloadFile('https://bootstrap.pypa.io/get-pip.py', getPipPath, () => {})
+    await this.downloadFile('https://bootstrap.pypa.io/get-pip.py', getPipPath, () => {}, lang)
     await this.exec(pythonExe, [getPipPath, '-q'])
 
     return pythonExe
@@ -299,7 +360,8 @@ class PythonSetupService {
   private downloadFile(
     url: string,
     dest: string,
-    onProgress: (pct: number) => void,
+    onProgress: (pct: number, eta?: string) => void,
+    lang: Lang = 'en',
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const follow = (target: string) => {
@@ -311,10 +373,23 @@ class PythonSetupService {
           }
           const total = parseInt(res.headers['content-length'] ?? '0')
           let received = 0
+          const startTime = Date.now()
           const file = createWriteStream(dest)
           res.on('data', (chunk: Buffer) => {
             received += chunk.length
-            if (total > 0) onProgress(Math.round(received / total * 100))
+            if (total > 0) {
+              const pct = Math.round(received / total * 100)
+              let eta: string | undefined
+              const elapsedSec = (Date.now() - startTime) / 1000
+              if (elapsedSec > 1 && received < total) {
+                const speed = received / elapsedSec  // bytes/sec
+                const remainingSec = (total - received) / speed
+                if (remainingSec > 5) {
+                  eta = formatEta(remainingSec, lang)
+                }
+              }
+              onProgress(pct, eta)
+            }
           })
           res.pipe(file)
           file.on('finish', () => file.close(() => resolve()))

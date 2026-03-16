@@ -226,6 +226,7 @@ class SidecarService {
     return {
       ...process.env,
       LABELING_TOOL_AI_DEVICE: settingsStore.get('ai_device_mode') ?? 'auto',
+      LABELING_TOOL_MODELS_DIR: join(app.getPath('userData'), 'models'),
       PATH: extraPath + (process.env.PATH ?? ''),
     }
   }

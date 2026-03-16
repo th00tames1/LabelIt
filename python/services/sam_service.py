@@ -26,8 +26,11 @@ class SAMService:
         self._runtime_info = None
         self._session_key: str | None = None
         self._session_size: tuple[int, int] | None = None
-        self._preferred_model = "sam3"
-        self._models_dir = Path(os.path.dirname(__file__)).resolve().parent / "models"
+        self._preferred_model = "sam2.1"
+        # Models dir: use LABELING_TOOL_MODELS_DIR env var (set to %APPDATA%\LabelIt\models\)
+        # so models are always in a user-writable location.
+        models_env = os.environ.get("LABELING_TOOL_MODELS_DIR")
+        self._models_dir = Path(models_env) if models_env else Path(os.path.dirname(__file__)).resolve().parent / "models"
         self._sam3_local_path = self._models_dir / "sam3.pt"
         self._sam2_local_path = self._models_dir / "sam2.1_b.pt"
 
@@ -73,6 +76,8 @@ class SAMService:
             "sam_model_label": model_label,
             "sam_model_loaded": self._predictor is not None,
             "sam_text_model_loaded": False,
+            "sam2_available": self._sam2_local_path.exists(),
+            "sam3_available": self._sam3_local_path.exists(),
         }
 
     def _load_point_model(self):

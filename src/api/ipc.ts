@@ -245,11 +245,15 @@ export const finishApi = {
 export interface SetupProgress {
   message: string
   percent: number
+  eta?: string     // estimated time remaining, e.g. "2m 30s remaining"
   error?: string
 }
 
 export const setupApi = {
   isNeeded: (): Promise<boolean> => api.setup.isNeeded(),
-  run: (): Promise<void> => api.setup.run(),
+  run: (lang: string): Promise<void> => api.setup.run(lang),
   onProgress: (cb: (p: SetupProgress) => void): (() => void) => api.setup.onProgress(cb),
+  getModelsDir: (): Promise<string> => api.setup.getModelsDir(),
+  openModelsDir: (): Promise<void> => api.setup.openModelsDir(),
+  openExternal: (url: string): Promise<void> => api.setup.openExternal(url),
 }

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Fully local desktop image annotation tool",
   "main": "./out/main/index.js",
-  "author": "",
+  "author": "Advanced Forestry Systems Lab",
   "homepage": ".",
   "scripts": {
     "dev": "electron-vite dev",
@@ -54,7 +54,7 @@
   "build": {
     "appId": "com.labelingtool.app",
     "productName": "LabelIt",
-    "copyright": "Copyright © 2025 LabelIt",
+    "copyright": "Copyright © 2025 Advanced Forestry Systems Lab",
     "directories": {
       "output": "dist",
       "buildResources": "resources"

@@ -42,10 +42,7 @@ class SidecarService {
     ], {
       cwd: scriptDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        LABELING_TOOL_AI_DEVICE: settingsStore.get('ai_device_mode') ?? 'auto',
-      },
+      env: this.buildEnv(),
     })
 
     this.process.stderr?.on('data', (chunk) => {
@@ -103,10 +100,7 @@ class SidecarService {
     ], {
       cwd: scriptDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        LABELING_TOOL_AI_DEVICE: settingsStore.get('ai_device_mode') ?? 'auto',
-      },
+      env: this.buildEnv(),
     })
 
     this.process.stderr?.on('data', (chunk) => {
@@ -180,8 +174,55 @@ class SidecarService {
     const localVenv = join(appPath, 'python', '.venv', 'Scripts', 'python.exe')
     if (existsSync(localVenv)) return localVenv
 
-    // 3. System python
+    if (process.platform === 'win32') {
+      const home = process.env.USERPROFILE || process.env.HOME || ''
+      const winCandidates = [
+        // Conda environments (common on AI/ML setups)
+        join(home, 'anaconda3', 'python.exe'),
+        join(home, 'Anaconda3', 'python.exe'),
+        join(home, 'miniconda3', 'python.exe'),
+        join(home, 'Miniconda3', 'python.exe'),
+        join(home, 'AppData', 'Local', 'anaconda3', 'python.exe'),
+        join(home, 'AppData', 'Local', 'miniconda3', 'python.exe'),
+        'C:\\ProgramData\\anaconda3\\python.exe',
+        'C:\\ProgramData\\Anaconda3\\python.exe',
+        'C:\\ProgramData\\miniconda3\\python.exe',
+        // Standard Python installations
+        'C:\\Python313\\python.exe',
+        'C:\\Python312\\python.exe',
+        'C:\\Python311\\python.exe',
+        'C:\\Python310\\python.exe',
+        'C:\\Python39\\python.exe',
+        join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python313', 'python.exe'),
+        join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python312', 'python.exe'),
+        join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python311', 'python.exe'),
+        join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python310', 'python.exe'),
+      ]
+      for (const candidate of winCandidates) {
+        if (existsSync(candidate)) return candidate
+      }
+    }
+
+    // 3. System python / python3
     return 'python'
+  }
+
+  private buildEnv(): NodeJS.ProcessEnv {
+    const cudaPaths: string[] = []
+    if (process.platform === 'win32') {
+      // Add common CUDA bin paths so torch can find CUDA DLLs
+      const cudaRoot = process.env.CUDA_PATH || 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA'
+      for (const ver of ['v12.4', 'v12.3', 'v12.2', 'v12.1', 'v12.0', 'v11.8']) {
+        cudaPaths.push(`${cudaRoot}\\${ver}\\bin`)
+      }
+    }
+    const pathSep = process.platform === 'win32' ? ';' : ':'
+    const extraPath = cudaPaths.length > 0 ? cudaPaths.join(pathSep) + pathSep : ''
+    return {
+      ...process.env,
+      LABELING_TOOL_AI_DEVICE: settingsStore.get('ai_device_mode') ?? 'auto',
+      PATH: extraPath + (process.env.PATH ?? ''),
+    }
   }
 
   private async waitForHealth(timeoutMs: number): Promise<void> {

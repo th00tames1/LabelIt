@@ -46,7 +46,8 @@
       "Bash(git add electron/main/index.ts src/components/canvas/AnnotationCanvas.tsx src/components/layout/Sidebar/ImageBrowser.tsx src/index.html src/utils/)",
       "Bash(git commit:*)",
       "Bash(gh auth status)",
-      "Bash(git add src/utils/paths.ts electron/main/index.ts src/components/canvas/AnnotationCanvas.tsx)"
+      "Bash(git add src/utils/paths.ts electron/main/index.ts src/components/canvas/AnnotationCanvas.tsx)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs\")"
     ]
   }
 }

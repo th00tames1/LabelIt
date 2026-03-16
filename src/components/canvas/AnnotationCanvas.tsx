@@ -99,6 +99,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const [scale, setScale] = useState(1)
   const [imgX, setImgX] = useState(0)
   const [imgY, setImgY] = useState(0)
+  const userZoomedRef = useRef(false)
 
   // 'anonymous' crossOrigin: required so Konva canvas stays untainted when
   // we call toDataURL() for SAM prediction. Works because localfile:// serves
@@ -150,28 +151,37 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
   // Fit image to canvas on load or image change
   useEffect(() => {
+    userZoomedRef.current = false
     if (!containerRef.current) return
     const { clientWidth: w, clientHeight: h } = containerRef.current
-    setStageSize({ width: w, height: h })
-    fitImage(w, h)
+    if (w > 0 && h > 0) {
+      setStageSize({ width: w, height: h })
+      fitImage(w, h)
+    }
   }, [image.id, image.width, image.height]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Resize observer
+  // Resize observer — also re-fits image if user hasn't manually zoomed
   useEffect(() => {
     if (!containerRef.current) return
     const observer = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect
+      if (width === 0 || height === 0) return
       setStageSize({ width, height })
+      if (!userZoomedRef.current) {
+        fitImage(width, height)
+      }
     })
     observer.observe(containerRef.current)
     return () => observer.disconnect()
-  }, [])
+  }, [image.id, image.width, image.height]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fitImage = (containerW: number, containerH: number) => {
+    if (!image.width || !image.height) return
     const margin = 40
     const scaleX = (containerW - margin * 2) / image.width
     const scaleY = (containerH - margin * 2) / image.height
-    const newScale = Math.min(scaleX, scaleY, 1)
+    // Always fit to canvas (no scale=1 ceiling) so image fills canvas proportionally
+    const newScale = Math.min(scaleX, scaleY)
     const dispW = image.width * newScale
     const dispH = image.height * newScale
     setScale(newScale)
@@ -184,6 +194,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const dispH = image.height * scale
 
   const applyScaleAt = useCallback((nextScale: number, anchorX: number, anchorY: number) => {
+    userZoomedRef.current = true
     const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, nextScale))
     const ratio = clamped / scale
     setScale(clamped)
@@ -474,6 +485,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'f' || e.key === '0') {
+        userZoomedRef.current = false
         fitImage(stageSize.width, stageSize.height)
       }
     }
@@ -1115,7 +1127,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
           </span>
           <button onClick={() => stepZoom('out')} style={zoomIconButtonStyle} title={language === 'ko' ? '축소' : 'Zoom out'}>-</button>
           <button onClick={() => stepZoom('in')} style={zoomIconButtonStyle} title={language === 'ko' ? '확대' : 'Zoom in'}>+</button>
-          <button onClick={() => fitImage(stageSize.width, stageSize.height)} style={zoomResetButtonStyle} title={t('canvas.fit')}>
+          <button onClick={() => { userZoomedRef.current = false; fitImage(stageSize.width, stageSize.height) }} style={zoomResetButtonStyle} title={t('canvas.fit')}>
             {t('canvas.fit')}
           </button>
         </div>

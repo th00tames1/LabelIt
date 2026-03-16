@@ -6,6 +6,7 @@ import { openDatabase, closeDatabase } from '../db/database'
 import { initProjectMeta, getProjectMeta, setProjectName } from '../db/repositories/project.repo'
 import type { RecentProject } from '../db/schema'
 import ElectronStore from 'electron-store'
+import { importFolder } from '../services/import.service'
 
 const recentStore = new ElectronStore<{ recent: RecentProject[] }>({
   name: 'recent-projects',
@@ -31,9 +32,16 @@ export function registerProjectIpc(): void {
     openDatabase(dbPath)
     initProjectMeta(name)
     currentProjectDir = directory
-    mkdirSync(join(directory, '.thumbnails'), { recursive: true })
+    const thumbnailDir = join(directory, '.thumbnails')
+    mkdirSync(thumbnailDir, { recursive: true })
 
     addRecent({ name, file_path: dbPath, last_opened: Date.now(), image_count: 0 })
+
+    // Auto-import images and annotations already present in the project folder
+    await importFolder(directory, thumbnailDir).catch((err) => {
+      console.warn('[project:create] Auto-import failed:', err.message)
+    })
+
     return getProjectMeta()
   })
 

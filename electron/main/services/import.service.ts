@@ -20,6 +20,8 @@ function collectImagePaths(dir: string): string[] {
   try {
     const entries = readdirSync(dir, { withFileTypes: true })
     for (const entry of entries) {
+      // Skip hidden directories (.thumbnails, .git, etc.) and project DB files
+      if (entry.isDirectory() && entry.name.startsWith('.')) continue
       const fullPath = join(dir, entry.name)
       if (entry.isDirectory()) {
         paths.push(...collectImagePaths(fullPath))

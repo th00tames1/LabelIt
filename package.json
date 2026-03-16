@@ -15,7 +15,6 @@
     "postinstall": "electron-builder install-app-deps && npm run native:fix"
   },
   "dependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.59.0",
     "better-sqlite3": "^11.9.1",
     "electron-store": "^8.2.0",
     "immer": "^11.1.4",

@@ -121,6 +121,17 @@ const api = {
     deleteVersion: (id: string) => ipcRenderer.invoke('finish:deleteVersion', id),
     exportVersions: (request: unknown) => ipcRenderer.invoke('finish:exportVersions', request),
   },
+
+  setup: {
+    isNeeded: (): Promise<boolean> => ipcRenderer.invoke('setup:isNeeded'),
+    run: (): Promise<void> => ipcRenderer.invoke('setup:run'),
+    onProgress: (callback: (progress: { message: string; percent: number; error?: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: unknown) =>
+        callback(progress as { message: string; percent: number; error?: string })
+      ipcRenderer.on('setup:progress', listener)
+      return () => ipcRenderer.removeListener('setup:progress', listener)
+    },
+  },
 }
 
 if (process.contextIsolated) {

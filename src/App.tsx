@@ -2,12 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import HomePage from './pages/Home/HomePage'
 import AnnotatePage from './pages/Annotate/AnnotatePage'
 import FinishPage from './pages/Finish/FinishPage'
+import AiSetupModal from './components/setup/AiSetupModal'
 import { useProjectStore } from './store/projectStore'
 import { useUIStore } from './store/uiStore'
 import { useSettingsStore } from './store/settingsStore'
 import { useImageStore } from './store/imageStore'
 import { sidecarClient } from './api/sidecar'
-import { menuApi, projectApi, sidecarApi } from './api/ipc'
+import { menuApi, projectApi, sidecarApi, setupApi } from './api/ipc'
 import labelItWhiteLogo from './assets/Labelit_White.svg'
 import labelItDarkLogo from './assets/Labelit_Dark.svg'
 
@@ -19,6 +20,7 @@ export default function App() {
   const [homeCreateModalSignal, setHomeCreateModalSignal] = useState(0)
   const [annotateImportSignal, setAnnotateImportSignal] = useState(0)
   const [showAbout, setShowAbout] = useState(false)
+  const [showAiSetup, setShowAiSetup] = useState(false)
   const currentProject = useProjectStore((s) => s.currentProject)
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject)
   const setSidecarOnline = useUIStore((s) => s.setSidecarOnline)
@@ -26,6 +28,22 @@ export default function App() {
   const theme = useSettingsStore((s) => s.settings.theme)
   const setActiveImageId = useImageStore((s) => s.setActiveImageId)
   const sidecarBootingRef = useRef(false)
+  const setupCheckedRef = useRef(false)
+
+  // Check AI setup on first load (after a short delay so app feels snappy)
+  useEffect(() => {
+    if (setupCheckedRef.current) return
+    setupCheckedRef.current = true
+    const timer = setTimeout(async () => {
+      try {
+        const needed = await setupApi.isNeeded()
+        if (needed) setShowAiSetup(true)
+      } catch {
+        // Non-critical — skip silently
+      }
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [])
 
   // Poll sidecar health every 5 seconds
   useEffect(() => {
@@ -123,6 +141,13 @@ export default function App() {
     else setPage('home')
   }, [currentProject])
 
+  const aiSetupOverlay = showAiSetup && (
+    <AiSetupModal
+      onDone={() => setShowAiSetup(false)}
+      onSkip={() => setShowAiSetup(false)}
+    />
+  )
+
   if (page === 'finish' && currentProject) {
     return (
       <>
@@ -134,6 +159,7 @@ export default function App() {
         }}
       />
       <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
+      {aiSetupOverlay}
       </>
     )
   }
@@ -147,6 +173,7 @@ export default function App() {
           menuImportSignal={annotateImportSignal}
         />
         <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
+        {aiSetupOverlay}
       </>
     )
       }
@@ -158,6 +185,7 @@ export default function App() {
         onCreateModalSignalHandled={() => setHomeCreateModalSignal(0)}
       />
       <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
+      {aiSetupOverlay}
     </>
   )
 }

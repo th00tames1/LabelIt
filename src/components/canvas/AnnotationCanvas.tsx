@@ -106,6 +106,11 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   // Access-Control-Allow-Origin: * headers (corsEnabled:true in main/index.ts).
   const [loadedImg] = useImage(toLocalFileUrl(image.file_path), 'anonymous')
 
+  // Use browser-reported natural dimensions (EXIF-corrected) when image is loaded;
+  // fall back to DB-stored dimensions while loading.
+  const imgW = loadedImg?.naturalWidth || image.width
+  const imgH = loadedImg?.naturalHeight || image.height
+
   // Tool state
   const [bboxStart, setBboxStart] = useState<NormalizedPoint | null>(null)
   const [bboxCurrent, setBboxCurrent] = useState<NormalizedPoint | null>(null)
@@ -160,6 +165,17 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     }
   }, [image.id, image.width, image.height]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-fit when image finishes loading so EXIF-corrected naturalWidth/Height are used
+  useEffect(() => {
+    userZoomedRef.current = false
+    if (!containerRef.current || !loadedImg) return
+    const { clientWidth: w, clientHeight: h } = containerRef.current
+    if (w > 0 && h > 0) {
+      setStageSize({ width: w, height: h })
+      fitImage(w, h)
+    }
+  }, [loadedImg]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Resize observer — also re-fits image if user hasn't manually zoomed
   useEffect(() => {
     if (!containerRef.current) return
@@ -176,22 +192,22 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   }, [image.id, image.width, image.height]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fitImage = (containerW: number, containerH: number) => {
-    if (!image.width || !image.height) return
+    if (!imgW || !imgH) return
     const margin = 40
-    const scaleX = (containerW - margin * 2) / image.width
-    const scaleY = (containerH - margin * 2) / image.height
+    const scaleX = (containerW - margin * 2) / imgW
+    const scaleY = (containerH - margin * 2) / imgH
     // Always fit to canvas (no scale=1 ceiling) so image fills canvas proportionally
     const newScale = Math.min(scaleX, scaleY)
-    const dispW = image.width * newScale
-    const dispH = image.height * newScale
+    const dW = imgW * newScale
+    const dH = imgH * newScale
     setScale(newScale)
-    setImgX((containerW - dispW) / 2)
-    setImgY((containerH - dispH) / 2)
+    setImgX((containerW - dW) / 2)
+    setImgY((containerH - dH) / 2)
   }
 
   // Displayed image dimensions in stage pixels (single scale application — no double scaling)
-  const dispW = image.width * scale
-  const dispH = image.height * scale
+  const dispW = imgW * scale
+  const dispH = imgH * scale
 
   const applyScaleAt = useCallback((nextScale: number, anchorX: number, anchorY: number) => {
     userZoomedRef.current = true
@@ -211,10 +227,10 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
   /** Convert stage pixel position to normalized image coordinates (0–1) */
   const toNormalized = useCallback((stageX: number, stageY: number): NormalizedPoint => {
-    const nx = (stageX - imgX) / (image.width * scale)
-    const ny = (stageY - imgY) / (image.height * scale)
+    const nx = (stageX - imgX) / (imgW * scale)
+    const ny = (stageY - imgY) / (imgH * scale)
     return { x: Math.max(0, Math.min(1, nx)), y: Math.max(0, Math.min(1, ny)) }
-  }, [imgX, imgY, image.width, image.height, scale])
+  }, [imgX, imgY, imgW, imgH, scale])
 
   const isPointerInsideImage = useCallback((stageX: number, stageY: number) => {
     return stageX >= imgX && stageX <= imgX + dispW && stageY >= imgY && stageY <= imgY + dispH
@@ -237,13 +253,13 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const getImageBase64 = useCallback((): string | null => {
     if (!loadedImg) return null
     const canvas = document.createElement('canvas')
-    canvas.width = image.width
-    canvas.height = image.height
+    canvas.width = imgW
+    canvas.height = imgH
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
-    ctx.drawImage(loadedImg, 0, 0)
+    ctx.drawImage(loadedImg, 0, 0, imgW, imgH)
     return canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
-  }, [loadedImg, image.width, image.height])
+  }, [loadedImg, imgW, imgH])
 
   const prepareSAMSession = useCallback(async (force = false): Promise<boolean> => {
     if (samSessionReady && !force) return true
@@ -664,19 +680,19 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     getContourArea(contour) < getContourArea(best) ? contour : best
   ))
 
-  const negativeRadiusPx = Math.max(12, Math.round(Math.min(image.width, image.height) * 0.02))
+  const negativeRadiusPx = Math.max(12, Math.round(Math.min(imgW, imgH) * 0.02))
 
   const pointToSegmentDistancePx = (
     point: NormalizedPoint,
     a: [number, number],
     b: [number, number],
   ) => {
-    const px = point.x * image.width
-    const py = point.y * image.height
-    const ax = a[0] * image.width
-    const ay = a[1] * image.height
-    const bx = b[0] * image.width
-    const by = b[1] * image.height
+    const px = point.x * imgW
+    const py = point.y * imgH
+    const ax = a[0] * imgW
+    const ay = a[1] * imgH
+    const bx = b[0] * imgW
+    const by = b[1] * imgH
     const abx = bx - ax
     const aby = by - ay
     const denom = abx * abx + aby * aby

@@ -240,3 +240,16 @@ export const finishApi = {
   exportVersions: (request: VersionExportRequest): Promise<VersionExportBatchResult> =>
     api.finish.exportVersions(request),
 }
+
+// ─── AI Setup ────────────────────────────────────────────────────────────────
+export interface SetupProgress {
+  message: string
+  percent: number
+  error?: string
+}
+
+export const setupApi = {
+  isNeeded: (): Promise<boolean> => api.setup.isNeeded(),
+  run: (): Promise<void> => api.setup.run(),
+  onProgress: (cb: (p: SetupProgress) => void): (() => void) => api.setup.onProgress(cb),
+}

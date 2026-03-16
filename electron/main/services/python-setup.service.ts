@@ -60,7 +60,35 @@ class PythonSetupService {
 
   // ── Private ──────────────────────────────────────────────────────────────────
 
-  private getPythonDir(): string {
+  /**
+   * The venv lives in the user's AppData, not in Program Files.
+   * This is writable even when the app is installed system-wide.
+   *   %APPDATA%\LabelIt\python-venv\
+   */
+  private getVenvDir(): string {
+    return join(app.getPath('userData'), 'python-venv')
+  }
+
+  private getPythonScriptsDir(): string {
+    return process.platform === 'win32'
+      ? join(this.getVenvDir(), 'Scripts')
+      : join(this.getVenvDir(), 'bin')
+  }
+
+  private getVenvPython(): string {
+    return process.platform === 'win32'
+      ? join(this.getPythonScriptsDir(), 'python.exe')
+      : join(this.getPythonScriptsDir(), 'python')
+  }
+
+  private getVenvPip(): string {
+    return process.platform === 'win32'
+      ? join(this.getPythonScriptsDir(), 'pip.exe')
+      : join(this.getPythonScriptsDir(), 'pip')
+  }
+
+  /** Python scripts/resources bundled with the app (read-only in production). */
+  private getPythonResourceDir(): string {
     const appPath = app.getAppPath()
     for (const c of [
       join(appPath, 'python'),
@@ -72,23 +100,7 @@ class PythonSetupService {
     return join(appPath, 'python')
   }
 
-  private getVenvPython(): string {
-    const venvDir = join(this.getPythonDir(), '.venv')
-    return process.platform === 'win32'
-      ? join(venvDir, 'Scripts', 'python.exe')
-      : join(venvDir, 'bin', 'python')
-  }
-
-  private getVenvPip(): string {
-    const venvDir = join(this.getPythonDir(), '.venv')
-    return process.platform === 'win32'
-      ? join(venvDir, 'Scripts', 'pip.exe')
-      : join(venvDir, 'bin', 'pip')
-  }
-
   private async doSetup(): Promise<void> {
-    const pythonDir = this.getPythonDir()
-
     // 1. Find / acquire a base Python ≥ 3.10
     this.emit({ message: 'Python 인터프리터 찾는 중...', percent: 5 })
     const basePython = await this.findOrAcquirePython()
@@ -98,11 +110,12 @@ class PythonSetupService {
       )
     }
 
-    // 2. Create venv
-    const venvDir = join(pythonDir, '.venv')
+    // 2. Create venv in user-writable %APPDATA%\LabelIt\python-venv
+    const venvDir = this.getVenvDir()
     if (!existsSync(venvDir)) {
       this.emit({ message: '가상 환경 생성 중...', percent: 15 })
-      // Try venv first; if that fails (embeddable Python) try virtualenv
+      mkdirSync(venvDir, { recursive: true })
+      // Try stdlib venv first; fall back to virtualenv (needed for embedded Python)
       try {
         await this.exec(basePython, ['-m', 'venv', venvDir])
       } catch {
@@ -141,9 +154,9 @@ class PythonSetupService {
       ])
     }
 
-    // 5. Install the rest of requirements.txt
+    // 5. Install the rest of requirements.txt (from read-only app resources)
     this.emit({ message: '나머지 패키지 설치 중...', percent: 72 })
-    const reqPath = join(pythonDir, 'requirements.txt')
+    const reqPath = join(this.getPythonResourceDir(), 'requirements.txt')
     await this.exec(venvPip, ['install', '-r', reqPath, '-q'])
 
     this.emit({ message: '설치 완료!', percent: 100 })

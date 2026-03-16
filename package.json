@@ -9,7 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "build:win": "npm run build && electron-builder --win",
+    "build:win": "node scripts/setup-codesign-cache.cjs && npm run build && electron-builder --win",
     "generate-icon": "node scripts/generate-icon.js",
     "native:fix": "node scripts/ensure-native-deps.js",
     "postinstall": "electron-builder install-app-deps && npm run native:fix"

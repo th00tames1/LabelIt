@@ -47,7 +47,14 @@
       "Bash(git commit:*)",
       "Bash(gh auth status)",
       "Bash(git add src/utils/paths.ts electron/main/index.ts src/components/canvas/AnnotationCanvas.tsx)",
-      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs\")"
+      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs\")",
+      "mcp__Desktop_Commander__read_file",
+      "mcp__Desktop_Commander__list_directory",
+      "Bash(npm run build:win)",
+      "Bash(export CSC_IDENTITY_AUTO_DISCOVERY=false)",
+      "Bash(ls -la \"C:\\\\Users\\\\user\\\\Desktop\\\\work\\\\LabelIt\\\\dist\"/*.exe)",
+      "Bash(ls -lh \"C:\\\\Users\\\\user\\\\Desktop\\\\work\\\\LabelIt\\\\dist\"/*.exe)",
+      "Bash(dir \"C:\\\\Users\\\\user\\\\Desktop\\\\work\\\\LabelIt\\\\dist\")"
     ]
   }
 }

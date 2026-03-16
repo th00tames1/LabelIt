@@ -166,11 +166,16 @@ class SidecarService {
     const appPath = app.getAppPath()
     const pythonDir = this.resolvePythonDir()
 
-    // 1. Bundled venv (production)
+    // 1. User-data venv — created by the AI setup wizard.
+    //    Lives in %APPDATA%\LabelIt\python-venv\ (always user-writable, even in Program Files installs).
+    const userDataVenv = join(app.getPath('userData'), 'python-venv', 'Scripts', 'python.exe')
+    if (existsSync(userDataVenv)) return userDataVenv
+
+    // 2. Bundled venv inside app resources (dev: python/.venv)
     const bundledPython = join(pythonDir, '.venv', 'Scripts', 'python.exe')
     if (existsSync(bundledPython)) return bundledPython
 
-    // 2. Local venv (development)
+    // 3. Local venv (development fallback — project root/python/.venv)
     const localVenv = join(appPath, 'python', '.venv', 'Scripts', 'python.exe')
     if (existsSync(localVenv)) return localVenv
 

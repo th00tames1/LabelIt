@@ -124,23 +124,46 @@ async function main() {
 
   console.log('Generating icon assets...')
 
+  const sourceSvgPath = path.join(__dirname, '..', 'Labelit_Logo.svg')
+  let sourceSvgBuffer = null
+  if (fs.existsSync(sourceSvgPath)) {
+    sourceSvgBuffer = fs.readFileSync(sourceSvgPath)
+    console.log('Using Labelit_Logo.svg as source')
+  }
+
   for (const size of SIZES) {
-    const svg = Buffer.from(createSvg(size))
-    const png = await sharp(svg, { density: 96 })
-      .resize(size, size)
-      .png({ compressionLevel: 9 })
-      .toBuffer()
+    let png
+    if (sourceSvgBuffer) {
+      png = await sharp(sourceSvgBuffer, { density: 300 })
+        .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png({ compressionLevel: 9 })
+        .toBuffer()
+    } else {
+      const svg = Buffer.from(createSvg(size))
+      png = await sharp(svg, { density: 96 })
+        .resize(size, size)
+        .png({ compressionLevel: 9 })
+        .toBuffer()
+    }
 
     images.push({ width: size, height: size, png })
     console.log(`  ✓ ${size}x${size}px`)
   }
 
   // Save the 512x512 PNG for documentation / macOS use
-  const svgLarge = Buffer.from(createSvg(512))
-  const largePng = await sharp(svgLarge, { density: 96 })
-    .resize(512, 512)
-    .png({ compressionLevel: 9 })
-    .toBuffer()
+  let largePng
+  if (sourceSvgBuffer) {
+    largePng = await sharp(sourceSvgBuffer, { density: 300 })
+      .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png({ compressionLevel: 9 })
+      .toBuffer()
+  } else {
+    const svgLarge = Buffer.from(createSvg(512))
+    largePng = await sharp(svgLarge, { density: 96 })
+      .resize(512, 512)
+      .png({ compressionLevel: 9 })
+      .toBuffer()
+  }
 
   const pngPath = path.join(resourcesDir, 'icon.png')
   fs.writeFileSync(pngPath, largePng)

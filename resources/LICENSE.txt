@@ -1,5 +1,5 @@
 LabelIt — Desktop Image Labeling Software
-Copyright (c) 2025
+Copyright (c) 2026 Heechan Jeong, Advanced Forestry Systems Lab, Oregon State University
 
 This software is provided for personal and commercial use.
 All rights reserved.

@@ -1,8 +1,26 @@
 import { ipcMain, app, shell } from 'electron'
 import { join } from 'path'
-import { mkdirSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { pythonSetupService } from '../services/python-setup.service'
 import type { SetupProgress } from '../services/python-setup.service'
+
+/**
+ * Resolves the models directory relative to the app installation.
+ * Tries: {appPath}/python, {appPath}/../python, {resourcesPath}/python
+ * This matches where sam_service.py looks for model files.
+ */
+function resolveModelsDir(): string {
+  const appPath = app.getAppPath()
+  const candidates = [
+    join(appPath, 'python'),
+    join(appPath, '..', 'python'),
+    join(process.resourcesPath ?? '', 'python'),
+  ]
+  for (const c of candidates) {
+    if (existsSync(c)) return join(c, 'models')
+  }
+  return join(appPath, 'python', 'models')
+}
 
 export function registerSetupIpc(): void {
   /** Check whether AI setup (venv + packages) is needed. */
@@ -31,14 +49,14 @@ export function registerSetupIpc(): void {
     }
   })
 
-  /** Returns the user-writable models directory path. */
+  /** Returns the models directory path (relative to app installation). */
   ipcMain.handle('setup:getModelsDir', async (): Promise<string> => {
-    return join(app.getPath('userData'), 'models')
+    return resolveModelsDir()
   })
 
   /** Opens the models directory in the OS file explorer. */
   ipcMain.handle('setup:openModelsDir', async (): Promise<void> => {
-    const dir = join(app.getPath('userData'), 'models')
+    const dir = resolveModelsDir()
     mkdirSync(dir, { recursive: true })
     await shell.openPath(dir)
   })

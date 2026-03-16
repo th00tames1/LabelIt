@@ -166,7 +166,7 @@ export default function HomePage({ openCreateModalSignal = 0, onCreateModalSigna
         }
         .home-panel {
           width: min(820px, 100%);
-          padding: 52px 54px 40px;
+          padding: 47px 54px 36px;
           border-radius: 28px;
           border: 1px solid var(--home-panel-border);
           background:
@@ -179,11 +179,11 @@ export default function HomePage({ openCreateModalSignal = 0, onCreateModalSigna
           display: flex;
           justify-content: center;
           text-align: center;
-          margin-bottom: 28px;
+          margin-bottom: 25px;
         }
         .home-logo {
           display: block;
-          width: min(288px, 61vw);
+          width: min(259px, 55vw);
           height: auto;
           margin: 0 auto;
           filter: drop-shadow(0 18px 28px rgba(0,0,0,0.12));
@@ -192,7 +192,7 @@ export default function HomePage({ openCreateModalSignal = 0, onCreateModalSigna
           display: flex;
           gap: 12px;
           justify-content: center;
-          margin-bottom: 36px;
+          margin-bottom: 32px;
         }
         .btn-primary {
           background: linear-gradient(135deg, var(--accent), var(--accent-hover));

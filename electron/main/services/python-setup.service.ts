@@ -127,9 +127,9 @@ class PythonSetupService {
       : join(this.getPythonScriptsDir(), 'pip')
   }
 
-  /** SAM models dir — user-writable, matches LABELING_TOOL_MODELS_DIR env var in sidecar. */
+  /** SAM models dir — inside the app's python folder, matches LABELING_TOOL_MODELS_DIR env var in sidecar. */
   private getModelsDir(): string {
-    return join(app.getPath('userData'), 'models')
+    return join(this.getPythonResourceDir(), 'models')
   }
 
   /** Python scripts/resources bundled with the app (read-only in production). */

@@ -21,6 +21,7 @@ interface Props {
   onGoHome: () => void
   onFinish: () => void
   menuImportSignal?: number
+  onSetupAi?: () => void
 }
 
 interface WorkflowNotice {
@@ -30,7 +31,7 @@ interface WorkflowNotice {
   targetTab?: RightPanelTab
 }
 
-export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 }: Props) {
+export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0, onSetupAi }: Props) {
   const { images, setImages, activeImageId, setActiveImageId, updateImageInList } = useImageStore()
   const { labels, load: loadLabels } = useLabelStore()
   const { annotations, loadForImage, clear, selectedId, deleteAnnotation, duplicateAnnotation, undo, redo } =
@@ -351,6 +352,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
         onFinish={onFinish}
         onAutoSplit={() => setShowAutoSplit(true)}
         onAutoLabel={() => setShowAutoLabel(true)}
+        onSetupAi={onSetupAi}
       />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Left sidebar: image browser */}
@@ -454,6 +456,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0 
                 image={activeImage}
                 activeTool={activeTool}
                 onAnnotationCreated={(id) => { if (!activeLabelClassId) setQuickPickAnnotationId(id) }}
+                onSetupAi={onSetupAi}
               />
             </CanvasErrorBoundary>
           ) : (

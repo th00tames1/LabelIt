@@ -22,6 +22,7 @@ interface Props {
   image: Image
   activeTool: ToolType
   onAnnotationCreated?: (annotationId: string) => void
+  onSetupAi?: () => void
 }
 
 const MIN_SCALE = 0.05
@@ -91,7 +92,7 @@ interface SamRunMeta {
   acceleration: 'gpu' | 'cpu'
 }
 
-export default function AnnotationCanvas({ image, activeTool, onAnnotationCreated }: Props) {
+export default function AnnotationCanvas({ image, activeTool, onAnnotationCreated, onSetupAi }: Props) {
   const stageRef = useRef<Konva.Stage>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -1357,20 +1358,56 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             </div>
           )}
 
-          {samError && (
-            <div style={{
-              padding: '7px 9px',
-              borderRadius: 8,
-              background: 'rgba(239,68,68,0.12)',
-              border: '1px solid rgba(239,68,68,0.28)',
-              color: 'var(--danger)',
-              fontSize: 11,
-              lineHeight: 1.45,
-              wordBreak: 'break-word',
-            }}>
-              {samError}
-            </div>
-          )}
+          {samError && (() => {
+            const isModelMissing = sidecarRuntime?.sam2_available === false
+              || /download failure|failed to load.*sam|sam.*not found/i.test(samError)
+            if (isModelMissing && onSetupAi) {
+              return (
+                <div style={{
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: 'rgba(197,154,25,0.12)',
+                  border: '1px solid rgba(197,154,25,0.35)',
+                  fontSize: 11,
+                  lineHeight: 1.5,
+                }}>
+                  <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: 6 }}>
+                    {t('sam.modelNotInstalled')}
+                  </div>
+                  <button
+                    onClick={onSetupAi}
+                    style={{
+                      width: '100%',
+                      padding: '5px 0',
+                      borderRadius: 6,
+                      background: '#c59a19',
+                      border: 'none',
+                      color: '#000',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {t('sam.installAi')}
+                  </button>
+                </div>
+              )
+            }
+            return (
+              <div style={{
+                padding: '7px 9px',
+                borderRadius: 8,
+                background: 'rgba(239,68,68,0.12)',
+                border: '1px solid rgba(239,68,68,0.28)',
+                color: 'var(--danger)',
+                fontSize: 11,
+                lineHeight: 1.45,
+                wordBreak: 'break-word',
+              }}>
+                {samError}
+              </div>
+            )
+          })()}
         </div>
       )}
 

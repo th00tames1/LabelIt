@@ -171,6 +171,7 @@ export default function App() {
           onGoHome={() => setPage('home')}
           onFinish={() => setPage('finish')}
           menuImportSignal={annotateImportSignal}
+          onSetupAi={() => setShowAiSetup(true)}
         />
         <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
         {aiSetupOverlay}

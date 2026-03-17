@@ -36,6 +36,7 @@ const T: Record<string, Record<Lang, string>> = {
   },
   pytorchCpu:       { en: 'Installing PyTorch (CPU)... (~500 MB)',           ko: 'PyTorch (CPU) 설치 중... (~500 MB)' },
   packages:         { en: 'Installing remaining packages...',                ko: '나머지 패키지 설치 중...' },
+  packagesAlready:  { en: 'AI packages already installed. Checking models...', ko: 'AI 패키지가 이미 설치되어 있습니다. 모델 확인 중...' },
   sam2Download:     { en: 'Downloading SAM2 model (~39 MB)...',              ko: 'SAM2 모델 다운로드 중 (~39 MB)...' },
   done:             { en: 'Installation complete!',                          ko: '설치 완료!' },
   pythonNotFound:   {
@@ -72,7 +73,7 @@ class PythonSetupService {
     this.handlers.forEach(h => h(p))
   }
 
-  /** Returns true if the venv is missing or core packages are not importable. */
+  /** Returns true if the venv is missing, core packages are not importable, or SAM2 model is absent. */
   async isSetupNeeded(): Promise<boolean> {
     const venvPython = this.getVenvPython()
     if (!existsSync(venvPython)) return true
@@ -81,9 +82,25 @@ class PythonSetupService {
         timeout: 12_000,
         stdio: 'ignore',
       })
-      return false
     } catch {
       return true
+    }
+    // Also check SAM2 model file
+    const sam2Path = join(this.getModelsDir(), 'sam2.1_b.pt')
+    return !existsSync(sam2Path)
+  }
+
+  private packagesInstalled(): boolean {
+    const venvPython = this.getVenvPython()
+    if (!existsSync(venvPython)) return false
+    try {
+      execSync(`"${venvPython}" -c "import fastapi, uvicorn, ultralytics"`, {
+        timeout: 12_000,
+        stdio: 'ignore',
+      })
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -170,34 +187,39 @@ class PythonSetupService {
     const venvPython = this.getVenvPython()
     const venvPip = this.getVenvPip()
 
-    // 3. Upgrade pip inside the venv
-    this.emit({ message: msg(lang, 'upgradePip'), percent: 20 })
-    await this.exec(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip', '-q'])
-
-    // 4. Detect GPU → install matching PyTorch build
-    this.emit({ message: msg(lang, 'detectGpu'), percent: 25 })
-    const hasCuda = this.detectCuda()
-
-    if (hasCuda) {
-      this.emit({ message: msg(lang, 'pytorchCuda'), percent: 30 })
-      await this.exec(venvPip, [
-        'install', 'torch', 'torchvision',
-        '--index-url', 'https://download.pytorch.org/whl/cu124',
-        '-q',
-      ])
+    // 3–5. Skip if packages are already installed (e.g. re-run to re-download model only)
+    if (this.packagesInstalled()) {
+      this.emit({ message: msg(lang, 'packagesAlready'), percent: 75 })
     } else {
-      this.emit({ message: msg(lang, 'pytorchCpu'), percent: 30 })
-      await this.exec(venvPip, [
-        'install', 'torch', 'torchvision',
-        '--index-url', 'https://download.pytorch.org/whl/cpu',
-        '-q',
-      ])
-    }
+      // 3. Upgrade pip inside the venv
+      this.emit({ message: msg(lang, 'upgradePip'), percent: 20 })
+      await this.exec(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip', '-q'])
 
-    // 5. Install the rest of requirements.txt (from read-only app resources)
-    this.emit({ message: msg(lang, 'packages'), percent: 70 })
-    const reqPath = join(this.getPythonResourceDir(), 'requirements.txt')
-    await this.exec(venvPip, ['install', '-r', reqPath, '-q'])
+      // 4. Detect GPU → install matching PyTorch build
+      this.emit({ message: msg(lang, 'detectGpu'), percent: 25 })
+      const hasCuda = this.detectCuda()
+
+      if (hasCuda) {
+        this.emit({ message: msg(lang, 'pytorchCuda'), percent: 30 })
+        await this.exec(venvPip, [
+          'install', 'torch', 'torchvision',
+          '--index-url', 'https://download.pytorch.org/whl/cu124',
+          '-q',
+        ])
+      } else {
+        this.emit({ message: msg(lang, 'pytorchCpu'), percent: 30 })
+        await this.exec(venvPip, [
+          'install', 'torch', 'torchvision',
+          '--index-url', 'https://download.pytorch.org/whl/cpu',
+          '-q',
+        ])
+      }
+
+      // 5. Install the rest of requirements.txt (from read-only app resources)
+      this.emit({ message: msg(lang, 'packages'), percent: 70 })
+      const reqPath = join(this.getPythonResourceDir(), 'requirements.txt')
+      await this.exec(venvPip, ['install', '-r', reqPath, '-q'])
+    }
 
     // 6. Download SAM2 model if not already present
     const modelsDir = this.getModelsDir()

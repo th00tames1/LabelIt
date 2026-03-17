@@ -9,11 +9,12 @@ interface Props {
   onFinish: () => void
   onAutoSplit: () => void
   onAutoLabel: () => void
+  onSetupAi?: () => void
 }
 
 const CONTROL_HEIGHT = 30
 
-export default function TopBar({ onGoHome, onFinish, onAutoSplit, onAutoLabel }: Props) {
+export default function TopBar({ onGoHome, onFinish, onAutoSplit, onAutoLabel, onSetupAi }: Props) {
   const project = useProjectStore((s) => s.currentProject)
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject)
   const updateCurrentProjectName = useProjectStore((s) => s.updateCurrentProjectName)
@@ -188,10 +189,18 @@ export default function TopBar({ onGoHome, onFinish, onAutoSplit, onAutoLabel }:
         {t('topbar.shortcuts')}
       </button>
 
-      {/* AI status */}
+      {/* AI status — click when offline to re-run setup */}
       <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, minWidth: 84, flexShrink: 0 }}
-        title={aiStatusTitle}
+        onClick={!sidecarOnline && onSetupAi ? onSetupAi : undefined}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, minWidth: 84, flexShrink: 0,
+          cursor: !sidecarOnline && onSetupAi ? 'pointer' : 'default',
+          borderRadius: 6,
+          padding: '2px 4px',
+        }}
+        title={!sidecarOnline && onSetupAi
+          ? (t('topbar.aiOfflineClickHint') ?? 'Click to set up AI features')
+          : aiStatusTitle}
       >
         <div style={{
           width: 8, height: 8, borderRadius: '50%',

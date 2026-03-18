@@ -131,19 +131,30 @@ app.whenReady().then(async () => {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, HEAD',
   }
-  protocol.handle('localfile', (request) => {
+  protocol.handle('localfile', async (request) => {
     const url = new URL(request.url)
     const filePath = url.searchParams.get('path') ?? ''
     if (!filePath) return new Response('Missing path', { status: 400, headers: CORS_HEADERS })
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const data: Buffer = require('fs').readFileSync(filePath)
       const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
       const mime: Record<string, string> = {
         jpg: 'image/jpeg', jpeg: 'image/jpeg',
         png: 'image/png', bmp: 'image/bmp',
-        webp: 'image/webp', tif: 'image/tiff', tiff: 'image/tiff',
+        webp: 'image/webp',
       }
+
+      // TIFF: Chromium cannot render TIFF natively — convert to PNG on-the-fly via sharp
+      if (ext === 'tif' || ext === 'tiff') {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const sharp = require('sharp')
+        const pngBuffer: Buffer = await sharp(filePath).rotate().png().toBuffer()
+        return new Response(new Uint8Array(pngBuffer), {
+          headers: { 'Content-Type': 'image/png', ...CORS_HEADERS },
+        })
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const data: Buffer = require('fs').readFileSync(filePath)
       return new Response(new Uint8Array(data), {
         headers: {
           'Content-Type': mime[ext] ?? 'application/octet-stream',

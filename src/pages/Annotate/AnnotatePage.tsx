@@ -279,7 +279,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
         }
 
         const toolMap: Record<string, ToolType> = {
-          v: 'select', w: 'bbox', e: 'polygon', s: 'sam', k: 'keypoint',
+          v: 'select', w: 'bbox', e: 'polygon', l: 'polyline', s: 'sam', k: 'keypoint',
         }
         const requestedTool = toolMap[e.key.toLowerCase()]
         if (requestedTool) {

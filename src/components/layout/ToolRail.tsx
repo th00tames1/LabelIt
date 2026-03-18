@@ -35,14 +35,29 @@ function Icon({ tool, active }: { tool: ToolType; active: boolean }) {
     )
   }
 
-  if (tool === 'keypoint') {
+  if (tool === 'polyline') {
+    // Polyline icon: connected line with keypoint dots at vertices
     return (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-        <path d="M5 12L8.2 8.2L11 11L13.5 5.5" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx="5" cy="12" r="1.4" fill={stroke} />
-        <circle cx="8.2" cy="8.2" r="1.4" fill={stroke} />
-        <circle cx="11" cy="11" r="1.4" fill={stroke} />
-        <circle cx="13.5" cy="5.5" r="1.4" fill={stroke} />
+        <path d="M3.5 13L7 7.5L11 10.5L14.5 4.5" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="3.5" cy="13" r="1.8" fill={stroke} />
+        <circle cx="7" cy="7.5" r="1.8" fill={stroke} />
+        <circle cx="11" cy="10.5" r="1.8" fill={stroke} />
+        <circle cx="14.5" cy="4.5" r="1.8" fill={stroke} />
+      </svg>
+    )
+  }
+
+  if (tool === 'keypoint') {
+    // Point icon: simple crosshair / target circle for single-point placement
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <circle cx="9" cy="9" r="3.2" stroke={stroke} strokeWidth="1.6" />
+        <circle cx="9" cy="9" r="1.2" fill={stroke} />
+        <line x1="9" y1="2" x2="9" y2="5.2" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="9" y1="12.8" x2="9" y2="16" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="2" y1="9" x2="5.2" y2="9" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="12.8" y1="9" x2="16" y2="9" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     )
   }
@@ -84,6 +99,7 @@ export default function ToolRail() {
     { tool: 'select', label: t('topbar.selectTool'), shortcut: 'V' },
     { tool: 'bbox', label: t('topbar.bboxTool'), shortcut: 'W' },
     { tool: 'polygon', label: t('topbar.polygonTool'), shortcut: 'E' },
+    { tool: 'polyline', label: t('topbar.polylineTool'), shortcut: 'L' },
     { tool: 'sam', label: t('topbar.smartPolygonTool'), shortcut: 'S' },
     { tool: 'keypoint', label: t('topbar.keypointTool'), shortcut: 'K' },
     { tool: 'null', label: t('topbar.nullTool'), shortcut: '-' },

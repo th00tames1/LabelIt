@@ -458,6 +458,8 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         }
       }
       setPolygonPoints((pts) => [...pts, norm])
+    } else if (activeTool === 'polyline') {
+      setPolygonPoints((pts) => [...pts, norm])
     } else if (activeTool === 'keypoint') {
       // Only place on background canvas (not on an existing annotation shape)
       const isBackground = (e.target as unknown as Konva.Node) === e.target.getStage()
@@ -477,10 +479,17 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     }
   }, [activeTool, polygonPoints, samPoints, getPointerNorm, createAndNotify, image.id, getActiveLabelId, runSAMPrediction])
 
-  // SAM right-click = negative point
+  // Right-click: undo last vertex while drawing polygon/polyline, or SAM negative point
   const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (activeTool !== 'sam') return
     e.evt.preventDefault()
+
+    if (activeTool === 'polygon' || activeTool === 'polyline') {
+      // Remove the last placed vertex (one-step undo)
+      setPolygonPoints((pts) => pts.slice(0, -1))
+      return
+    }
+
+    if (activeTool !== 'sam') return
     const norm = getPointerNorm(true)
     if (!norm) return
     setSelectedSamPointIndex(null)
@@ -498,6 +507,52 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     await createAndNotify(image.id, 'polygon', geometry, getActiveLabelId())
     setPolygonPoints([])
   }, [polygonPoints, createAndNotify, image.id, getActiveLabelId])
+
+  const finalizePolyline = useCallback(async () => {
+    if (polygonPoints.length < 2) return
+    const geometry: AnnotationGeometry = {
+      type: 'polyline',
+      points: polygonPoints.map(({ x, y }) => [x, y]),
+    }
+    await createAndNotify(image.id, 'polyline', geometry, getActiveLabelId())
+    setPolygonPoints([])
+  }, [polygonPoints, createAndNotify, image.id, getActiveLabelId])
+
+  // Double-click while drawing polygon: auto-complete (removing the duplicate point added by the second click)
+  const handleStageDblClick = useCallback(async (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (e.evt.button !== 0) return
+    if (activeTool === 'polygon') {
+      // A dblclick fires after two clicks; polygonPoints already has the point from
+      // the first click of the double-click appended. Remove that last duplicate point
+      // then finalize if we have at least 3 vertices.
+      setPolygonPoints((pts) => {
+        // pts still has the extra point from the first click — slice it off
+        const trimmed = pts.slice(0, -1)
+        if (trimmed.length >= 3) {
+          const geometry: AnnotationGeometry = {
+            type: 'polygon',
+            points: trimmed.map(({ x, y }) => [x, y]),
+          }
+          createAndNotify(image.id, 'polygon', geometry, getActiveLabelId()).catch(console.error)
+          return []
+        }
+        return trimmed
+      })
+    } else if (activeTool === 'polyline') {
+      setPolygonPoints((pts) => {
+        const trimmed = pts.slice(0, -1)
+        if (trimmed.length >= 2) {
+          const geometry: AnnotationGeometry = {
+            type: 'polyline',
+            points: trimmed.map(({ x, y }) => [x, y]),
+          }
+          createAndNotify(image.id, 'polyline', geometry, getActiveLabelId()).catch(console.error)
+          return []
+        }
+        return trimmed
+      })
+    }
+  }, [activeTool, createAndNotify, image.id, getActiveLabelId])
 
   // F / 0 = fit to view
   useEffect(() => {
@@ -858,6 +913,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         setBboxStart(null); setBboxCurrent(null); setPolygonPoints([])
         clearSAMState()
       }
+      if (e.key === 'Enter' && activeTool === 'polyline') {
+        finalizePolyline().catch(console.error)
+      }
       if ((e.key === 'Delete' || e.key === 'Backspace') && activeTool === 'sam' && selectedSamPointIndex != null) {
         e.preventDefault()
         removeSamPoint(selectedSamPointIndex)
@@ -871,7 +929,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeTool, clearSAMState, commitSAM, finalizePolygon, removeSamPoint, selectedSamPointIndex])
+  }, [activeTool, clearSAMState, commitSAM, finalizePolygon, finalizePolyline, removeSamPoint, selectedSamPointIndex])
 
   const samPreviewTags = (() => {
     const tagWidth = Math.max(72, samPreviewLabel.length * 7 + 16)
@@ -920,7 +978,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const selectedSamModel = samPendingModel ?? samSelectedModelState
 
   const cursor =
-    activeTool === 'bbox' || activeTool === 'polygon'
+    activeTool === 'bbox' || activeTool === 'polygon' || activeTool === 'polyline'
     || activeTool === 'keypoint' || activeTool === 'sam'
       ? 'crosshair'
       : 'default'
@@ -949,6 +1007,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         onMouseMove={handleStageMouseMove}
         onMouseUp={handleStageMouseUp}
         onClick={handleStageClick}
+        onDblClick={handleStageDblClick}
         onContextMenu={handleStageContextMenu}
       >
         {/* Layer 1: Image */}
@@ -1023,10 +1082,11 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
               imgX={imgX} imgY={imgY} imgW={dispW} imgH={dispH}
             />
           )}
-          {activeTool === 'polygon' && polygonPoints.length > 0 && mousePos && (
+          {(activeTool === 'polygon' || activeTool === 'polyline') && polygonPoints.length > 0 && mousePos && (
             <PolygonPreview
               points={polygonPoints} mousePos={mousePos}
               imgX={imgX} imgY={imgY} imgW={dispW} imgH={dispH}
+              closed={activeTool === 'polygon'}
             />
           )}
           {/* SAM preview: mask contours + point prompts */}

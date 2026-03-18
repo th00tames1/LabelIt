@@ -137,6 +137,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
   const [isExporting, setIsExporting] = useState(false)
   const [exportResult, setExportResult] = useState<VersionExportBatchResult | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [showUnassignedWarning, setShowUnassignedWarning] = useState(false)
 
   const text = language === 'ko'
       ? {
@@ -208,6 +209,10 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         includeImages: '결과 폴더에 이미지 파일 포함',
         selectVersion: '내보낼 버전을 하나 이상 선택하세요.',
         selectOutput: '출력 폴더를 먼저 선택하세요.',
+        unassignedWarningTitle: '분할 미지정 이미지가 있습니다',
+        unassignedWarningBody: (count: number) => `이미지 ${count}개가 train/val/test 분할에 배정되지 않았습니다.\n분할 없이 그대로 내보내시겠습니까?`,
+        unassignedWarningConfirm: '그래도 내보내기',
+        unassignedWarningCancel: '취소',
         rawTag: '원본',
         edit: '편집',
         delete: '삭제',
@@ -299,6 +304,10 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         includeImages: 'Include image files in the export output',
         selectVersion: 'Select at least one dataset version to export.',
         selectOutput: 'Choose an output folder first.',
+        unassignedWarningTitle: 'Unassigned images detected',
+        unassignedWarningBody: (count: number) => `${count} image${count === 1 ? '' : 's'} have not been assigned to a train/val/test split.\nExport anyway without split assignment?`,
+        unassignedWarningConfirm: 'Export anyway',
+        unassignedWarningCancel: 'Cancel',
         rawTag: 'Raw',
         edit: 'Edit',
         delete: 'Delete',
@@ -351,9 +360,16 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
 
   useEffect(() => {
     const validIds = new Set(versions.map((version) => version.id))
+    const hasAugmented = versions.some((version) => version.kind === 'augmented')
     setSelectedExportIds((current) => {
       const next = current.filter((id) => validIds.has(id))
-      return next.length > 0 ? next : ['raw']
+      if (next.length > 0) return next
+      // Default: if augmented versions exist, pre-select only augmented ones (raw unchecked)
+      if (hasAugmented) {
+        const augmentedIds = versions.filter((v) => v.kind === 'augmented').map((v) => v.id)
+        return augmentedIds.length > 0 ? augmentedIds : ['raw']
+      }
+      return ['raw']
     })
   }, [versions])
 
@@ -485,6 +501,8 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
       await loadWorkspace()
       setVersionMessage(text.saved)
       resetVersionForm()
+      // Automatically navigate to Export tab after saving a version
+      setActiveTab('export')
     } catch (err) {
       setVersionMessage(err instanceof Error ? err.message : text.failed)
     } finally {
@@ -525,15 +543,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
       : [...current, versionId])
   }
 
-  const handleExport = async () => {
-    if (selectedExportIds.length === 0) {
-      setExportError(text.selectVersion)
-      return
-    }
-    if (!outputDir) {
-      setExportError(text.selectOutput)
-      return
-    }
+  const runExport = async () => {
     setIsExporting(true)
     setExportError(null)
     setExportResult(null)
@@ -553,6 +563,26 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
     }
   }
 
+  const handleExport = async () => {
+    if (selectedExportIds.length === 0) {
+      setExportError(text.selectVersion)
+      return
+    }
+    if (!outputDir) {
+      setExportError(text.selectOutput)
+      return
+    }
+
+    // Warn if there are unassigned images and no split filter is applied
+    const unassignedCount = summary?.unassigned_split_images ?? 0
+    if (exportSplit === 'all' && unassignedCount > 0) {
+      setShowUnassignedWarning(true)
+      return
+    }
+
+    await runExport()
+  }
+
   if (loading) {
     return <div style={loadingScreenStyle}>{text.loading}</div>
   }
@@ -563,6 +593,35 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg-primary)' }}>
+
+      {/* Unassigned-split export warning modal */}
+      {showUnassignedWarning && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, padding: '28px 32px', maxWidth: 420, width: '100%', boxShadow: 'var(--shadow-lg)' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 12 }}>
+              ⚠️ {text.unassignedWarningTitle}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-line' }}>
+              {text.unassignedWarningBody(summary?.unassigned_split_images ?? 0)}
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowUnassignedWarning(false)}
+                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}
+              >
+                {text.unassignedWarningCancel}
+              </button>
+              <button
+                onClick={() => { setShowUnassignedWarning(false); runExport().catch(console.error) }}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: 'white', fontSize: 13, fontWeight: 700 }}
+              >
+                {text.unassignedWarningConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={finishHeaderStyle}>
           <button onClick={onBackToAnnotate} style={finishBackButtonStyle}>{text.back}</button>
 

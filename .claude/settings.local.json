@@ -54,7 +54,8 @@
       "Bash(export CSC_IDENTITY_AUTO_DISCOVERY=false)",
       "Bash(ls -la \"C:\\\\Users\\\\user\\\\Desktop\\\\work\\\\LabelIt\\\\dist\"/*.exe)",
       "Bash(ls -lh \"C:\\\\Users\\\\user\\\\Desktop\\\\work\\\\LabelIt\\\\dist\"/*.exe)",
-      "Bash(dir \"C:\\\\Users\\\\user\\\\Desktop\\\\work\\\\LabelIt\\\\dist\")"
+      "Bash(dir \"C:\\\\Users\\\\user\\\\Desktop\\\\work\\\\LabelIt\\\\dist\")",
+      "Bash(node -e \"try { require\\(''''sharp''''\\); console.log\\(''''sharp available''''\\) } catch\\(e\\) { console.log\\(''''sharp not found: '''' + e.message\\) }\")"
     ]
   }
 }

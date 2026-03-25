@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import AutoSplitDialog from '../../components/AutoSplitDialog'
 import { exportApi, finishApi, imageApi, projectApi } from '../../api/ipc'
 import { useProjectStore } from '../../store/projectStore'
 import { useI18n } from '../../i18n'
@@ -132,12 +133,14 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
   const [selectedExportIds, setSelectedExportIds] = useState<string[]>(['raw'])
   const [exportFormat, setExportFormat] = useState<ExportFormat>('yolo')
   const [exportSplit, setExportSplit] = useState<SplitType | 'all'>('all')
+  const [exportImageScope, setExportImageScope] = useState<'annotated' | 'all'>('all')
   const [includeImages, setIncludeImages] = useState(true)
   const [outputDir, setOutputDir] = useState('')
   const [isExporting, setIsExporting] = useState(false)
   const [exportResult, setExportResult] = useState<VersionExportBatchResult | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
-  const [showUnassignedWarning, setShowUnassignedWarning] = useState(false)
+  const [showAutoSplitForExport, setShowAutoSplitForExport] = useState(false)
+  const [rerunExportAfterSplit, setRerunExportAfterSplit] = useState(false)
 
   const text = language === 'ko'
       ? {
@@ -207,8 +210,12 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         exportFailed: '버전 내보내기에 실패했습니다.',
         exportDone: '내보내기가 완료되었습니다.',
         includeImages: '결과 폴더에 이미지 파일 포함',
+        imageScope: '내보낼 이미지 범위',
+        annotatedOnly: 'Annotated만',
+        allImages: 'All 이미지',
         selectVersion: '내보낼 버전을 하나 이상 선택하세요.',
         selectOutput: '출력 폴더를 먼저 선택하세요.',
+        splitRequired: '분할되지 않은 이미지가 있어 먼저 split이 필요합니다.',
         unassignedWarningTitle: '분할 미지정 이미지가 있습니다',
         unassignedWarningBody: (count: number) => `이미지 ${count}개가 train/val/test 분할에 배정되지 않았습니다.\n분할 없이 그대로 내보내시겠습니까?`,
         unassignedWarningConfirm: '그래도 내보내기',
@@ -302,8 +309,12 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         exportFailed: 'Version export failed.',
         exportDone: 'Export completed.',
         includeImages: 'Include image files in the export output',
+        imageScope: 'Image Scope',
+        annotatedOnly: 'Annotated Only',
+        allImages: 'All Images',
         selectVersion: 'Select at least one dataset version to export.',
         selectOutput: 'Choose an output folder first.',
+        splitRequired: 'Some images are still unassigned. Split them before export.',
         unassignedWarningTitle: 'Unassigned images detected',
         unassignedWarningBody: (count: number) => `${count} image${count === 1 ? '' : 's'} have not been assigned to a train/val/test split.\nExport anyway without split assignment?`,
         unassignedWarningConfirm: 'Export anyway',
@@ -379,6 +390,11 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
       if (dir) setOutputDir(dir)
     }).catch(() => undefined)
   }, [outputDir])
+
+  useEffect(() => {
+    if (!summary) return
+    setExportImageScope(summary.unlabeled_images > 0 ? 'annotated' : 'all')
+  }, [summary])
 
   const filteredImages = useMemo(() => {
     const images = summary?.images ?? []
@@ -553,6 +569,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
         format: exportFormat,
         output_dir: outputDir,
         include_images: includeImages,
+        image_scope: exportImageScope,
         split: exportSplit === 'all' ? undefined : exportSplit,
       })
       setExportResult(result)
@@ -573,10 +590,16 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
       return
     }
 
-    // Warn if there are unassigned images and no split filter is applied
-    const unassignedCount = summary?.unassigned_split_images ?? 0
-    if (exportSplit === 'all' && unassignedCount > 0) {
-      setShowUnassignedWarning(true)
+    const relevantImages = summary?.images.filter((image) => {
+      const matchesSplit = exportSplit === 'all' || image.split === exportSplit
+      const matchesScope = exportImageScope === 'all' || image.annotation_count > 0
+      return matchesSplit && matchesScope
+    }) ?? []
+
+    if (relevantImages.some((image) => image.split === 'unassigned')) {
+      setExportError(text.splitRequired)
+      setRerunExportAfterSplit(true)
+      setShowAutoSplitForExport(true)
       return
     }
 
@@ -594,33 +617,6 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--bg-primary)' }}>
 
-      {/* Unassigned-split export warning modal */}
-      {showUnassignedWarning && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 16, padding: '28px 32px', maxWidth: 420, width: '100%', boxShadow: 'var(--shadow-lg)' }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 12 }}>
-              ⚠️ {text.unassignedWarningTitle}
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-line' }}>
-              {text.unassignedWarningBody(summary?.unassigned_split_images ?? 0)}
-            </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowUnassignedWarning(false)}
-                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}
-              >
-                {text.unassignedWarningCancel}
-              </button>
-              <button
-                onClick={() => { setShowUnassignedWarning(false); runExport().catch(console.error) }}
-                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: 'white', fontSize: 13, fontWeight: 700 }}
-              >
-                {text.unassignedWarningConfirm}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div style={finishHeaderStyle}>
           <button onClick={onBackToAnnotate} style={finishBackButtonStyle}>{text.back}</button>
@@ -872,7 +868,7 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                   />
                   <TechniqueSummaryCard
                     title={language === 'ko' ? '회전' : 'Rotate'}
-                    description={language === 'ko' ? '최대 ±15º까지 자유 회전을 무작위로 적용합니다.' : 'Randomly rotate up to ±15º.'}
+                    description={language === 'ko' ? '+각도 또는 -각도로 자유 회전을 적용합니다.' : 'Apply either the positive or negative rotation angle.'}
                     enabled={recipe.rotate_enabled}
                     summary={toMagnitudeLabel(recipe.rotate_range, 0, 'º')}
                     onToggle={(enabled) => updateRecipe(enabled ? { rotate_enabled: true, rotate_range: 15 } : { rotate_enabled: false, rotate_range: 0 })}
@@ -986,6 +982,14 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
                 </div>
               </div>
 
+              <div style={{ marginTop: 16 }}>
+                <div style={fieldLabelStyle}>{text.imageScope}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button onClick={() => setExportImageScope('annotated')} style={{ ...formatButtonStyle, ...(exportImageScope === 'annotated' ? activeFormatButtonStyle : {}) }}>{text.annotatedOnly}</button>
+                  <button onClick={() => setExportImageScope('all')} style={{ ...formatButtonStyle, ...(exportImageScope === 'all' ? activeFormatButtonStyle : {}) }}>{text.allImages}</button>
+                </div>
+              </div>
+
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18, fontSize: 13, color: 'var(--text-primary)' }}>
                 <input type="checkbox" checked={includeImages} disabled={hasAugSelection} onChange={(e) => setIncludeImages(e.target.checked)} />
                 {text.includeImages}
@@ -1080,6 +1084,24 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
           rotateText={{ cw90: text.rotate90, cw270: text.rotate270 }}
         />
       )}
+
+      {showAutoSplitForExport && (
+        <AutoSplitDialog
+          totalImages={summary.total_images}
+          onClose={() => {
+            setShowAutoSplitForExport(false)
+            setRerunExportAfterSplit(false)
+          }}
+          onComplete={async () => {
+            setShowAutoSplitForExport(false)
+            await loadWorkspace()
+            if (rerunExportAfterSplit) {
+              setRerunExportAfterSplit(false)
+              await runExport()
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1146,7 +1168,18 @@ function TechniqueSummaryCard({
   onClick: () => void
 }) {
   return (
-    <button onClick={onClick} style={{ ...techniqueSummaryCardStyle, opacity: enabled ? 1 : 0.82 }}>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      style={{ ...techniqueSummaryCardStyle, opacity: enabled ? 1 : 0.82 }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <div style={{ textAlign: 'left', flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>{title}</div>
@@ -1173,7 +1206,7 @@ function TechniqueSummaryCard({
         </button>
       </div>
       <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'left' }}>{summary}</div>
-    </button>
+    </div>
   )
 }
 
@@ -1259,7 +1292,7 @@ function TechniqueModal({
     },
     rotate_free: {
       title: language === 'ko' ? '회전' : 'Rotate',
-      description: language === 'ko' ? '최대 ±15º까지 자유 회전을 무작위로 적용합니다.' : 'Randomly rotate up to ±15º.',
+      description: language === 'ko' ? '+각도 또는 -각도로 자유 회전을 적용합니다.' : 'Apply either the positive or negative rotation angle.',
       kind: 'rotate_free',
     },
     shear: {

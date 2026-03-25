@@ -15,6 +15,9 @@ interface UIState {
   sidecarRuntime: SidecarRuntimeInfo | null
   isImporting: boolean
   annotationsVisible: boolean   // H key toggle: show/hide all annotations
+  displayContrast: number
+  displayBrightness: number
+  hideLabelText: boolean
   showShortcutsHelp: boolean    // ? key: keyboard shortcut reference overlay
   rightPanelTab: RightPanelTab
 
@@ -25,6 +28,9 @@ interface UIState {
   setSidecarRuntime: (runtime: SidecarRuntimeInfo | null) => void
   setImporting: (importing: boolean) => void
   toggleAnnotationsVisible: () => void
+  setDisplayContrast: (value: number) => void
+  setDisplayBrightness: (value: number) => void
+  setHideLabelText: (hide: boolean) => void
   setShowShortcutsHelp: (show: boolean) => void
   setRightPanelTab: (tab: RightPanelTab) => void
 }
@@ -37,6 +43,9 @@ export const useUIStore = create<UIState>((set) => ({
   sidecarRuntime: null,
   isImporting: false,
   annotationsVisible: true,
+  displayContrast: 0,
+  displayBrightness: 0,
+  hideLabelText: false,
   showShortcutsHelp: false,
   rightPanelTab: 'annotations',
 
@@ -47,6 +56,9 @@ export const useUIStore = create<UIState>((set) => ({
   setSidecarRuntime: (runtime) => set({ sidecarRuntime: runtime }),
   setImporting: (importing) => set({ isImporting: importing }),
   toggleAnnotationsVisible: () => set((s) => ({ annotationsVisible: !s.annotationsVisible })),
+  setDisplayContrast: (value) => set({ displayContrast: value }),
+  setDisplayBrightness: (value) => set({ displayBrightness: value }),
+  setHideLabelText: (hide) => set({ hideLabelText: hide }),
   setShowShortcutsHelp: (show) => set({ showShortcutsHelp: show }),
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
 }))

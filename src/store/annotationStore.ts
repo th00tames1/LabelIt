@@ -14,6 +14,7 @@ interface AnnotationState {
   annotations: Annotation[]
   selectedId: string | null
   isLoading: boolean
+  visibilityById: Record<string, boolean>
   undoStack: UndoRecord[]
   redoStack: UndoRecord[]
 
@@ -35,6 +36,9 @@ interface AnnotationState {
 
   // Direct list mutation (used by review queue: accept/reject operations)
   setAnnotations: (annotations: Annotation[]) => void
+  setAnnotationVisible: (id: string, visible: boolean) => void
+  toggleAnnotationVisible: (id: string) => void
+  isAnnotationVisible: (id: string) => boolean
 
   // Selection
   setSelectedId: (id: string | null) => void
@@ -49,16 +53,23 @@ export const useAnnotationStore = create<AnnotationState>()(
     annotations: [],
     selectedId: null,
     isLoading: false,
+    visibilityById: {},
     undoStack: [],
     redoStack: [],
 
     loadForImage: async (imageId) => {
       set({ isLoading: true, selectedId: null })
       const annotations = await annotationApi.listForImage(imageId)
-      set({ annotations, isLoading: false, undoStack: [], redoStack: [] })
+      set({
+        annotations,
+        visibilityById: Object.fromEntries(annotations.map((annotation) => [annotation.id, true])),
+        isLoading: false,
+        undoStack: [],
+        redoStack: [],
+      })
     },
 
-    clear: () => set({ annotations: [], selectedId: null, undoStack: [], redoStack: [] }),
+    clear: () => set({ annotations: [], selectedId: null, visibilityById: {}, undoStack: [], redoStack: [] }),
 
     createAnnotation: async (imageId, annotationType, geometry, labelClassId) => {
       if (!labelClassId) {
@@ -73,7 +84,7 @@ export const useAnnotationStore = create<AnnotationState>()(
         annotation_type: annotationType, geometry, confidence: null, source: 'manual',
         created_at: now, updated_at: now,
       }
-      set((s) => { s.annotations.push(temp); s.selectedId = tempId })
+      set((s) => { s.annotations.push(temp); s.visibilityById[tempId] = true; s.selectedId = tempId })
 
       // Persist
       const created = await annotationApi.create(imageId, {
@@ -84,6 +95,8 @@ export const useAnnotationStore = create<AnnotationState>()(
       set((s) => {
         const idx = s.annotations.findIndex((a) => a.id === tempId)
         if (idx >= 0) s.annotations[idx] = created
+        delete s.visibilityById[tempId]
+        s.visibilityById[created.id] = true
         s.selectedId = created.id
         s.undoStack.push({ type: 'create', annotation: created })
         s.redoStack = []
@@ -137,6 +150,7 @@ export const useAnnotationStore = create<AnnotationState>()(
       // Optimistic
       set((s) => {
         s.annotations = s.annotations.filter((a) => a.id !== id)
+        delete s.visibilityById[id]
         if (s.selectedId === id) s.selectedId = null
         s.undoStack.push({ type: 'delete', annotation })
         s.redoStack = []
@@ -164,7 +178,13 @@ export const useAnnotationStore = create<AnnotationState>()(
       )
     },
 
-    setAnnotations: (annotations) => set({ annotations }),
+    setAnnotations: (annotations) => set((state) => ({
+      annotations,
+      visibilityById: Object.fromEntries(annotations.map((annotation) => [annotation.id, state.visibilityById[annotation.id] ?? true])),
+    })),
+    setAnnotationVisible: (id, visible) => set((s) => ({ visibilityById: { ...s.visibilityById, [id]: visible } })),
+    toggleAnnotationVisible: (id) => set((s) => ({ visibilityById: { ...s.visibilityById, [id]: !(s.visibilityById[id] ?? true) } })),
+    isAnnotationVisible: (id) => get().visibilityById[id] ?? true,
     setSelectedId: (id) => set({ selectedId: id }),
 
     undo: async () => {
@@ -179,6 +199,7 @@ export const useAnnotationStore = create<AnnotationState>()(
         // Undo create = delete without touching history
         set((s) => {
           s.annotations = s.annotations.filter((a) => a.id !== record.annotation.id)
+          delete s.visibilityById[record.annotation.id]
           if (s.selectedId === record.annotation.id) s.selectedId = null
         })
         await annotationApi.delete(record.annotation.id)
@@ -189,7 +210,7 @@ export const useAnnotationStore = create<AnnotationState>()(
           geometry: record.annotation.geometry,
           label_class_id: record.annotation.label_class_id,
         }])
-        set((s) => { s.annotations.push(created) })
+        set((s) => { s.annotations.push(created); s.visibilityById[created.id] = true })
       } else if (record.type === 'update' && record.previousGeometry) {
         // Undo update = restore previous geometry without touching history
         set((s) => {
@@ -217,11 +238,12 @@ export const useAnnotationStore = create<AnnotationState>()(
           geometry: record.annotation.geometry,
           label_class_id: record.annotation.label_class_id,
         })
-        set((s) => { s.annotations.push(created) })
+        set((s) => { s.annotations.push(created); s.visibilityById[created.id] = true })
       } else if (record.type === 'delete') {
         // Redo delete = delete again without touching history
         set((s) => {
           s.annotations = s.annotations.filter((a) => a.id !== record.annotation.id)
+          delete s.visibilityById[record.annotation.id]
           if (s.selectedId === record.annotation.id) s.selectedId = null
         })
         await annotationApi.delete(record.annotation.id)

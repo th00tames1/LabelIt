@@ -33,13 +33,13 @@ interface WorkflowNotice {
 
 export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0, onSetupAi }: Props) {
   const { images, setImages, activeImageId, setActiveImageId, updateImageInList } = useImageStore()
-  const { labels, load: loadLabels } = useLabelStore()
+  const { labels, load: loadLabels, toggleLabelVisible } = useLabelStore()
   const { annotations, loadForImage, clear, selectedId, deleteAnnotation, duplicateAnnotation, undo, redo } =
     useAnnotationStore()
   const {
     activeTool, setActiveTool, setActiveLabelClassId,
     activeLabelClassId,
-    toggleAnnotationsVisible, showShortcutsHelp, setShowShortcutsHelp, setRightPanelTab,
+    showShortcutsHelp, setShowShortcutsHelp, setRightPanelTab,
   } = useUIStore()
   const { t } = useI18n()
   const [showAutoSplit, setShowAutoSplit] = useState(false)
@@ -206,6 +206,10 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
     return true
   }, [activeImageId, annotations, setRightPanelTab, t])
 
+  const selectedLabelClassId = selectedId != null
+    ? (annotations.find((annotation) => annotation.id === selectedId)?.label_class_id ?? null)
+    : null
+
   // Global keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -266,9 +270,10 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
           return
         }
 
-        // H: toggle label visibility
+        // H: toggle selected label visibility
         if (e.key === 'h' || e.key === 'H') {
-          toggleAnnotationsVisible()
+          const targetLabelId = selectedLabelClassId ?? activeLabelClassId
+          if (targetLabelId) toggleLabelVisible(targetLabelId)
           return
         }
 
@@ -339,7 +344,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
       activeTool, setActiveTool,
       selectedId, deleteAnnotation, duplicateAnnotation, undo, redo,
       labels, setActiveLabelClassId,
-      activeLabelClassId, toggleAnnotationsVisible, setShowShortcutsHelp,
+      activeLabelClassId, selectedLabelClassId, toggleLabelVisible, setShowShortcutsHelp,
       updateImageInList, canMarkCurrentImageComplete, showCreateLabelNotice,
   ])
 

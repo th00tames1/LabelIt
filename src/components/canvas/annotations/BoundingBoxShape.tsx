@@ -9,6 +9,7 @@ interface Props {
   isSelected: boolean
   imgX: number; imgY: number; imgW: number; imgH: number
   labelName?: string
+  showLabelText?: boolean
   onSelect: () => void
   onSelectAtPointer: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
@@ -18,7 +19,7 @@ interface Props {
 export default function BoundingBoxShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
-  labelName,
+  labelName, showLabelText = true,
   onSelect, onSelectAtPointer, onUpdateGeometry, defaultCursor,
 }: Props) {
   const rectRef = useRef<Konva.Rect>(null)
@@ -71,7 +72,7 @@ export default function BoundingBoxShape({
   const liveX = x + dragOffset.x
   const liveY = y + dragOffset.y
   const tagY = liveY < tagH ? liveY : liveY - tagH
-  const showTag = !!annotation.label_class_id && !!labelName
+  const showTag = showLabelText && !!annotation.label_class_id && !!labelName
 
   const setCursor = (target: { getStage: () => { container: () => HTMLDivElement } | null }, cursor: string) => {
     target.getStage()?.container().style.setProperty('cursor', cursor)

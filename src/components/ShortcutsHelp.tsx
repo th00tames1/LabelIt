@@ -59,7 +59,7 @@ const GROUPS = {
     {
       title: 'Visibility',
       rows: [
-        ['H', 'Toggle label visibility'],
+        ['H', 'Toggle selected label visibility'],
         ['?', 'Open or close this shortcuts help'],
       ],
     },
@@ -124,7 +124,7 @@ const GROUPS = {
     {
       title: '보기',
       rows: [
-        ['H', '라벨 표시 토글'],
+        ['H', '선택한 라벨 표시 토글'],
         ['?', '이 단축키 도움말 열기 / 닫기'],
       ],
     },

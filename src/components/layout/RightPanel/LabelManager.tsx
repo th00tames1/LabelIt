@@ -12,7 +12,7 @@ const PRESET_COLORS = [
 ]
 
 export default function LabelManager() {
-  const { labels, createLabel, updateLabel, deleteLabel } = useLabelStore()
+  const { labels, createLabel, updateLabel, deleteLabel, toggleLabelVisible, isLabelVisible } = useLabelStore()
   const selectedAnnotationId = useAnnotationStore((s) => s.selectedId)
   const updateAnnotationLabel = useAnnotationStore((s) => s.updateLabel)
   const loadForImage = useAnnotationStore((s) => s.loadForImage)
@@ -151,6 +151,9 @@ export default function LabelManager() {
         )}
 
         {labels.map((label, idx) => (
+          (() => {
+            const labelVisible = isLabelVisible(label.id)
+            return (
           <div
             key={label.id}
             onClick={() => handlePickLabel(label.id).catch(console.error)}
@@ -161,6 +164,7 @@ export default function LabelManager() {
               gap: 8,
               cursor: 'pointer',
               background: activeLabelClassId === label.id ? 'var(--bg-hover)' : 'transparent',
+              opacity: labelVisible ? 1 : 0.62,
             }}
           >
             {/* Color swatch / picker — click to open full color picker */}
@@ -225,6 +229,31 @@ export default function LabelManager() {
               </span>
             )}
 
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleLabelVisible(label.id)
+              }}
+              title={labelVisible ? 'Hide label' : 'Show label'}
+              style={{
+                width: 24,
+                height: 24,
+                padding: 0,
+                display: 'grid',
+                placeItems: 'center',
+                borderRadius: 6,
+                background: 'transparent',
+                color: labelVisible ? 'var(--text-secondary)' : 'var(--text-muted)',
+                opacity: labelVisible ? 1 : 0.75,
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path d="M1.5 9C2.9 5.9 5.7 4 9 4s6.1 1.9 7.5 5c-1.4 3.1-4.2 5-7.5 5S2.9 12.1 1.5 9Z" stroke="currentColor" strokeWidth="1.4" />
+                <circle cx="9" cy="9" r="2.2" stroke="currentColor" strokeWidth="1.4" />
+                {!labelVisible && <path d="M3 15L15 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}
+              </svg>
+            </button>
+
             {/* Color picker inline — all presets */}
             <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', maxWidth: 64 }}>
               {PRESET_COLORS.map((c) => (
@@ -254,6 +283,8 @@ export default function LabelManager() {
               ×
             </button>
           </div>
+            )
+          })()
         ))}
       </div>
 

@@ -201,7 +201,7 @@ export async function exportFinishVersions(request: VersionExportRequest): Promi
     throw new Error('Augmented versions require image export so the generated files can be materialized.')
   }
 
-  assertExportReadiness(request.split)
+  assertExportReadiness(request.split, request.image_scope)
   mkdirSync(request.output_dir, { recursive: true })
 
   const labels = listLabels()
@@ -211,7 +211,7 @@ export async function exportFinishVersions(request: VersionExportRequest): Promi
     const version = versions.find((entry) => entry.id === versionId)
     if (!version) throw new Error(`Dataset version not found: ${versionId}`)
 
-    const samples = buildResolvedSamples(version, request.split)
+    const samples = buildResolvedSamples(version, request.split, request.image_scope)
     assertFormatCompatibility(request.format, samples)
     let exported: ExportResult
     if (request.format === 'yolo') {
@@ -321,11 +321,15 @@ function hasAnyRecipeEffect(recipe: AugmentationRecipe): boolean {
   return hasPreprocessingEffect(recipe) || hasAugmentationEffect(recipe)
 }
 
-function buildResolvedSamples(version: DatasetVersion, split?: SplitType): ResolvedSample[] {
+function buildResolvedSamples(version: DatasetVersion, split?: SplitType, imageScope: VersionExportRequest['image_scope'] = 'all'): ResolvedSample[] {
   const images = listImages(split ? { split } : undefined)
 
   return images.flatMap((image) => {
     const annotations = listForImage(image.id)
+    if (imageScope === 'annotated' && annotations.length === 0 && !image.is_null) {
+      return []
+    }
+
     if (version.kind !== 'augmented' || version.recipe == null) {
       return [createResolvedSample({
         id: image.id,
@@ -340,19 +344,22 @@ function buildResolvedSamples(version: DatasetVersion, split?: SplitType): Resol
 
     const recipe = version.recipe
     const seeds = buildSampleSeeds(image, annotations, recipe)
-    const samples: ResolvedSample[] = seeds.map((seed: SampleSeed) => {
-      const baseTransform = createMaterializedTransform(recipe, mulberry32(hashString(`${version.id}:${seed.id}:base`)), false)
+    const baseSamples: ResolvedSample[] = seeds.map((seed: SampleSeed) => {
+      const baseTransform = createMaterializedTransform(recipe, mulberry32(hashString(`${version.id}:${seed.id}:base`)), false, 0, 0)
       return createResolvedSample(seed, baseTransform)
     })
 
     if (image.split !== 'train' || !hasAugmentationEffect(recipe)) {
-      return samples
+      return baseSamples
     }
 
+    const samples: ResolvedSample[] = [...baseSamples]
+
     seeds.forEach((seed: SampleSeed) => {
+      const augmentedCopyCount = Math.max(0, version.multiplier - 1)
       for (let copyIndex = 1; copyIndex < version.multiplier; copyIndex += 1) {
         const rng = mulberry32(hashString(`${version.id}:${seed.id}:${copyIndex}`))
-        const transform = createMaterializedTransform(recipe, rng, true)
+        const transform = createMaterializedTransform(recipe, rng, true, copyIndex - 1, augmentedCopyCount)
         samples.push(createResolvedSample(
           {
             ...seed,
@@ -368,7 +375,13 @@ function buildResolvedSamples(version: DatasetVersion, split?: SplitType): Resol
   })
 }
 
-function createMaterializedTransform(recipe: AugmentationRecipe, rng: () => number, includeAugmentation: boolean): MaterializedTransform | null {
+function createMaterializedTransform(
+  recipe: AugmentationRecipe,
+  rng: () => number,
+  includeAugmentation: boolean,
+  augmentedCopyIndex: number,
+  augmentedCopyCount: number,
+): MaterializedTransform | null {
   const absRotate = Math.abs(recipe.rotate_range)
   const absShearX = Math.abs(recipe.shear_x_range)
   const absShearY = Math.abs(recipe.shear_y_range)
@@ -377,9 +390,26 @@ function createMaterializedTransform(recipe: AugmentationRecipe, rng: () => numb
   const absSaturation = Math.abs(recipe.saturation_range)
   const absHue = Math.abs(recipe.hue_range)
   const absBlur = Math.abs(recipe.blur_range)
-  const rotationChoices: Array<0 | 90 | 270> = []
-  if (includeAugmentation && recipe.rotate_cw90_enabled) rotationChoices.push(90)
-  if (includeAugmentation && recipe.rotate_cw270_enabled) rotationChoices.push(270)
+  const flipVariants = includeAugmentation ? buildFlipVariants(recipe) : []
+  const rotationVariants = includeAugmentation ? buildRotationVariants(recipe, absRotate, rng) : []
+  const shearVariants = includeAugmentation && recipe.shear_enabled ? buildShearVariants(absShearX, absShearY, rng) : []
+  const allowEmptyGeometry = includeAugmentation && (
+    (recipe.brightness_enabled && absBrightness > 0)
+    || (recipe.contrast_enabled && absContrast > 0)
+    || (recipe.saturation_enabled && absSaturation > 0)
+    || (recipe.hue_enabled && absHue > 0)
+    || (recipe.blur_enabled && absBlur > 0)
+  )
+  const selectedGeometryFamilies = includeAugmentation
+    ? pickGeometryFamilies([
+      flipVariants.length > 0 ? 'flip' : null,
+      rotationVariants.length > 0 ? 'rotation' : null,
+      shearVariants.length > 0 ? 'shear' : null,
+    ].filter((value): value is 'flip' | 'rotation' | 'shear' => value != null), rng, allowEmptyGeometry)
+    : []
+  const selectedFlip = selectedGeometryFamilies.includes('flip') ? pick(flipVariants, rng) : null
+  const selectedRotation = selectedGeometryFamilies.includes('rotation') ? pick(rotationVariants, rng) : null
+  const selectedShear = selectedGeometryFamilies.includes('shear') ? pick(shearVariants, rng) : null
 
   const transform: MaterializedTransform = {
     resizeEnabled: recipe.resize_enabled,
@@ -388,54 +418,103 @@ function createMaterializedTransform(recipe: AugmentationRecipe, rng: () => numb
     grayscaleEnabled: recipe.grayscale_enabled,
     adjustContrastMode: recipe.adjust_contrast_enabled ? recipe.adjust_contrast_mode : null,
     autoOrientEnabled: recipe.auto_orient_enabled,
-    horizontalFlip: includeAugmentation && recipe.horizontal_flip_enabled && rng() < 0.5,
-    verticalFlip: includeAugmentation && recipe.vertical_flip_enabled && rng() < 0.5,
-    rotation: rotationChoices.length > 0 ? pick(rotationChoices, rng) : 0,
-    freeRotation: includeAugmentation && recipe.rotate_enabled && absRotate > 0 ? randomRange(rng, -absRotate, absRotate) : 0,
-    shearX: includeAugmentation && recipe.shear_enabled && absShearX > 0 ? randomRange(rng, -absShearX, absShearX) : 0,
-    shearY: includeAugmentation && recipe.shear_enabled && absShearY > 0 ? randomRange(rng, -absShearY, absShearY) : 0,
-    brightnessDelta: includeAugmentation && recipe.brightness_enabled && absBrightness > 0 ? randomRange(rng, -absBrightness, absBrightness) : 0,
-    contrastDelta: includeAugmentation && recipe.contrast_enabled && absContrast > 0 ? randomRange(rng, -absContrast, absContrast) : 0,
-    saturationDelta: includeAugmentation && recipe.saturation_enabled && absSaturation > 0 ? randomRange(rng, -absSaturation, absSaturation) : 0,
-    hueDelta: includeAugmentation && recipe.hue_enabled && absHue > 0 ? randomRange(rng, -absHue, absHue) : 0,
-    blurSigma: includeAugmentation && recipe.blur_enabled && absBlur > 0 ? randomRange(rng, 0, absBlur) : 0,
-  }
-
-  if (isIdentityTransform(transform)) {
-    if (!includeAugmentation) return null
-    if (recipe.horizontal_flip_enabled) transform.horizontalFlip = true
-    else if (recipe.rotate_cw90_enabled) transform.rotation = 90
-    else if (recipe.rotate_cw270_enabled) transform.rotation = 270
-    else if (recipe.vertical_flip_enabled) transform.verticalFlip = true
-    else if (recipe.rotate_enabled && absRotate > 0) transform.freeRotation = Math.max(4, absRotate * 0.5)
-    else if (recipe.shear_enabled && (absShearX > 0 || absShearY > 0)) {
-      transform.shearX = Math.max(4, absShearX * 0.5)
-      transform.shearY = Math.max(4, absShearY * 0.5)
-    }
-    else if (recipe.brightness_enabled && absBrightness > 0) transform.brightnessDelta = Math.max(0.08, absBrightness * 0.5)
-    else if (recipe.contrast_enabled && absContrast > 0) transform.contrastDelta = Math.max(0.08, absContrast * 0.5)
-    else if (recipe.saturation_enabled && absSaturation > 0) transform.saturationDelta = Math.max(0.1, absSaturation * 0.5)
-    else if (recipe.hue_enabled && absHue > 0) transform.hueDelta = Math.max(4, absHue * 0.5)
-    else if (recipe.blur_enabled && absBlur > 0) transform.blurSigma = Math.max(0.3, absBlur * 0.5)
+    horizontalFlip: selectedFlip?.horizontalFlip ?? false,
+    verticalFlip: selectedFlip?.verticalFlip ?? false,
+    rotation: selectedRotation?.rotation ?? 0,
+    freeRotation: selectedRotation?.freeRotation ?? 0,
+    shearX: selectedShear?.shearX ?? 0,
+    shearY: selectedShear?.shearY ?? 0,
+    brightnessDelta: includeAugmentation && recipe.brightness_enabled && absBrightness > 0
+      ? sampleDistributedSigned(rng, absBrightness, augmentedCopyIndex, augmentedCopyCount, 0.01)
+      : 0,
+    contrastDelta: includeAugmentation && recipe.contrast_enabled && absContrast > 0
+      ? sampleDistributedSigned(rng, absContrast, augmentedCopyIndex, augmentedCopyCount, 0.01)
+      : 0,
+    saturationDelta: includeAugmentation && recipe.saturation_enabled && absSaturation > 0
+      ? sampleDistributedSigned(rng, absSaturation, augmentedCopyIndex, augmentedCopyCount, 0.01)
+      : 0,
+    hueDelta: includeAugmentation && recipe.hue_enabled && absHue > 0
+      ? sampleDistributedSigned(rng, absHue, augmentedCopyIndex, augmentedCopyCount, 0.5)
+      : 0,
+    blurSigma: includeAugmentation && recipe.blur_enabled && absBlur > 0
+      ? sampleDistributed(rng, absBlur, augmentedCopyIndex, augmentedCopyCount, 0.1)
+      : 0,
   }
 
   return isIdentityTransform(transform) ? null : transform
 }
 
-function assertExportReadiness(split?: SplitType): void {
+function buildFlipVariants(recipe: AugmentationRecipe): Array<Pick<MaterializedTransform, 'horizontalFlip' | 'verticalFlip'>> {
+  const variants: Array<Pick<MaterializedTransform, 'horizontalFlip' | 'verticalFlip'>> = []
+  if (recipe.horizontal_flip_enabled) variants.push({ horizontalFlip: true, verticalFlip: false })
+  if (recipe.vertical_flip_enabled) variants.push({ horizontalFlip: false, verticalFlip: true })
+  if (recipe.horizontal_flip_enabled && recipe.vertical_flip_enabled) {
+    variants.push({ horizontalFlip: true, verticalFlip: true })
+  }
+  return variants
+}
+
+function buildRotationVariants(
+  recipe: AugmentationRecipe,
+  absRotate: number,
+  rng: () => number,
+): Array<Pick<MaterializedTransform, 'rotation' | 'freeRotation'>> {
+  const variants: Array<Pick<MaterializedTransform, 'rotation' | 'freeRotation'>> = []
+  if (recipe.rotate_cw90_enabled) variants.push({ rotation: 90, freeRotation: 0 })
+  if (recipe.rotate_cw270_enabled) variants.push({ rotation: 270, freeRotation: 0 })
+  if (recipe.rotate_enabled && absRotate > 0) variants.push({ rotation: 0, freeRotation: pickSignedMagnitude(absRotate, rng) })
+  if (recipe.rotate_cw90_enabled && recipe.rotate_enabled && absRotate > 0) {
+    variants.push({ rotation: 90, freeRotation: pickSignedMagnitude(absRotate, rng) })
+  }
+  if (recipe.rotate_cw270_enabled && recipe.rotate_enabled && absRotate > 0) {
+    variants.push({ rotation: 270, freeRotation: pickSignedMagnitude(absRotate, rng) })
+  }
+  return variants
+}
+
+function buildShearVariants(
+  absShearX: number,
+  absShearY: number,
+  rng: () => number,
+): Array<Pick<MaterializedTransform, 'shearX' | 'shearY'>> {
+  const variants: Array<Pick<MaterializedTransform, 'shearX' | 'shearY'>> = []
+  if (absShearX > 0) variants.push({ shearX: randomRangeSignedNonZero(rng, absShearX, 0.5), shearY: 0 })
+  if (absShearY > 0) variants.push({ shearX: 0, shearY: randomRangeSignedNonZero(rng, absShearY, 0.5) })
+  if (absShearX > 0 && absShearY > 0) {
+    variants.push({
+      shearX: randomRangeSignedNonZero(rng, absShearX, 0.5),
+      shearY: randomRangeSignedNonZero(rng, absShearY, 0.5),
+    })
+  }
+  return variants
+}
+
+function pickGeometryFamilies<T extends string>(families: T[], rng: () => number, allowEmpty: boolean): T[] {
+  if (families.length === 0) return []
+  const combinations: T[][] = []
+  const startMask = allowEmpty ? 0 : 1
+  const maxMask = 1 << families.length
+  for (let mask = startMask; mask < maxMask; mask += 1) {
+    const selected = families.filter((_, index) => (mask & (1 << index)) !== 0)
+    if (!allowEmpty && selected.length === 0) continue
+    combinations.push(selected)
+  }
+  return pick(combinations, rng)
+}
+
+function assertExportReadiness(split?: SplitType, imageScope: VersionExportRequest['image_scope'] = 'all'): void {
   const summary = getFinishSummary()
   const items = split != null
     ? summary.images.filter((image) => image.split === split)
     : summary.images
+  const scopedItems = imageScope === 'annotated'
+    ? items.filter((image) => image.annotation_count > 0)
+    : items
 
-  const missingAnnotations = items.filter((image) => hasIssue(image.issues, 'missing_annotations')).length
-  const statusUnlabeled = items.filter((image) => hasIssue(image.issues, 'status_unlabeled')).length
-  const missingLabels = items.filter((image) => hasIssue(image.issues, 'missing_labels')).length
-  const unassigned = items.filter((image) => hasIssue(image.issues, 'unassigned_split')).length
+  const missingLabels = scopedItems.filter((image) => hasIssue(image.issues, 'missing_labels')).length
+  const unassigned = scopedItems.filter((image) => hasIssue(image.issues, 'unassigned_split')).length
 
   const blockers: string[] = []
-  if (missingAnnotations > 0) blockers.push(`${missingAnnotations} image(s) without annotations`)
-  if (statusUnlabeled > 0) blockers.push(`${statusUnlabeled} image(s) still marked as unlabeled`)
   if (missingLabels > 0) blockers.push(`${missingLabels} image(s) with missing class labels`)
   if (unassigned > 0) blockers.push(`${unassigned} image(s) with no dataset split`)
 
@@ -1192,11 +1271,36 @@ async function writeSampleImage(sample: ResolvedSample, destinationPath: string)
   }
 
   if (sample.transform != null && Math.abs(sample.transform.freeRotation) >= 0.25) {
-    pipeline = pipeline.rotate(sample.transform.freeRotation, {
+    const rotated = await pipeline.rotate(sample.transform.freeRotation, {
       background: sample.transform.resizeMode === 'white_edges'
         ? { r: 255, g: 255, b: 255, alpha: 1 }
         : { r: 0, g: 0, b: 0, alpha: 1 },
     })
+
+    const { data, info } = await rotated.toBuffer({ resolveWithObject: true })
+    const cropWidth = Math.min(sample.width, info.width)
+    const cropHeight = Math.min(sample.height, info.height)
+    const cropLeft = Math.max(0, Math.floor((info.width - cropWidth) / 2))
+    const cropTop = Math.max(0, Math.floor((info.height - cropHeight) / 2))
+
+    pipeline = sharp(data).extract({
+      left: cropLeft,
+      top: cropTop,
+      width: cropWidth,
+      height: cropHeight,
+    })
+
+    if (cropWidth !== sample.width || cropHeight !== sample.height) {
+      pipeline = pipeline.extend({
+        top: Math.floor((sample.height - cropHeight) / 2),
+        bottom: Math.ceil((sample.height - cropHeight) / 2),
+        left: Math.floor((sample.width - cropWidth) / 2),
+        right: Math.ceil((sample.width - cropWidth) / 2),
+        background: sample.transform.resizeMode === 'white_edges'
+          ? { r: 255, g: 255, b: 255, alpha: 1 }
+          : { r: 0, g: 0, b: 0, alpha: 1 },
+      })
+    }
   }
 
   if (sample.transform?.adjustContrastMode === 'stretch') {
@@ -1212,12 +1316,16 @@ async function writeSampleImage(sample: ResolvedSample, destinationPath: string)
   }
 
   const modulate: { saturation?: number; hue?: number } = {}
-  if (sample.transform != null && Math.abs(sample.transform.saturationDelta) >= 0.01) modulate.saturation = 1 + sample.transform.saturationDelta
+  if (sample.transform != null && Math.abs(sample.transform.saturationDelta) >= 0.01) {
+    modulate.saturation = clampNumber(1 + sample.transform.saturationDelta, 0.01, 4)
+  }
   if (sample.transform != null && Math.abs(sample.transform.hueDelta) >= 0.5) modulate.hue = normalizeHue(sample.transform.hueDelta)
   if (Object.keys(modulate).length > 0) pipeline = pipeline.modulate(modulate)
 
   if (sample.transform != null && Math.abs(sample.transform.contrastDelta) >= 0.01) {
-    pipeline = pipeline.gamma(Math.max(0.1, 1 + sample.transform.contrastDelta))
+    const contrastFactor = clampNumber(1 + sample.transform.contrastDelta, 0.01, 3)
+    const contrastOffset = 128 * (1 - contrastFactor)
+    pipeline = pipeline.linear(contrastFactor, contrastOffset)
   }
   if (sample.transform != null && sample.transform.blurSigma >= 0.1) {
     pipeline = pipeline.blur(sample.transform.blurSigma)
@@ -1289,6 +1397,51 @@ function pick<T>(values: readonly T[], rng: () => number): T {
 
 function randomRange(rng: () => number, min: number, max: number): number {
   return min + (max - min) * rng()
+}
+
+function randomRangeNonZero(rng: () => number, max: number, minMagnitude = 0): number {
+  if (max <= 0) return 0
+  return randomRange(rng, Math.min(Math.abs(max), Math.max(0, minMagnitude)), max)
+}
+
+function randomRangeSignedNonZero(rng: () => number, max: number, minMagnitude = 0): number {
+  const magnitude = randomRangeNonZero(rng, Math.abs(max), minMagnitude)
+  if (magnitude === 0) return 0
+  return rng() < 0.5 ? -magnitude : magnitude
+}
+
+function sampleDistributed(
+  rng: () => number,
+  max: number,
+  index: number,
+  count: number,
+  minMagnitude = 0,
+): number {
+  const ceiling = Math.abs(max)
+  if (ceiling <= 0) return 0
+  const floor = Math.min(ceiling, Math.max(0, minMagnitude))
+  if (count <= 1) return randomRange(rng, floor, ceiling)
+
+  const band = (index + rng()) / count
+  return floor + ((ceiling - floor) * band)
+}
+
+function sampleDistributedSigned(
+  rng: () => number,
+  max: number,
+  index: number,
+  count: number,
+  minMagnitude = 0,
+): number {
+  const magnitude = sampleDistributed(rng, Math.abs(max), index, count, minMagnitude)
+  if (magnitude === 0) return 0
+  return rng() < 0.5 ? -magnitude : magnitude
+}
+
+function pickSignedMagnitude(value: number, rng: () => number): number {
+  const magnitude = Math.abs(value)
+  if (magnitude === 0) return 0
+  return rng() < 0.5 ? -magnitude : magnitude
 }
 
 function clamp01(value: number): number {

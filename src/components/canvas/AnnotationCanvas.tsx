@@ -2,11 +2,12 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import { Stage, Layer, Image as KonvaImage, Line, Circle } from 'react-konva'
 import useImage from 'use-image'
-import type Konva from 'konva'
+import Konva from 'konva'
 import type { Image, ToolType, NormalizedPoint, AnnotationGeometry } from '../../types'
 import { useAnnotationStore } from '../../store/annotationStore'
 import { useLabelStore } from '../../store/labelStore'
 import { useUIStore } from '../../store/uiStore'
+import { useSettingsStore } from '../../store/settingsStore'
 import { sidecarClient } from '../../api/sidecar'
 import BoundingBoxShape from './annotations/BoundingBoxShape'
 import PolygonShape from './annotations/PolygonShape'
@@ -68,6 +69,18 @@ const visibilityIconButtonStyle: CSSProperties = {
   pointerEvents: 'auto',
 }
 
+const displayToggleButtonStyle = (active: boolean): CSSProperties => ({
+  minWidth: 44,
+  height: 28,
+  padding: '0 10px',
+  borderRadius: 999,
+  border: `1px solid ${active ? 'rgba(var(--accent-rgb),0.38)' : 'var(--border)'}`,
+  background: active ? 'rgba(var(--accent-rgb),0.14)' : 'var(--bg-tertiary)',
+  color: active ? 'var(--accent)' : 'var(--text-secondary)',
+  fontSize: 14,
+  fontWeight: 700,
+})
+
 interface SAMPoint { x: number; y: number; label: 0 | 1 }
 
 interface SAMCandidate {
@@ -92,9 +105,22 @@ interface SamRunMeta {
   acceleration: 'gpu' | 'cpu'
 }
 
+function DisplaySlider({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{label}</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{value > 0 ? `+${value}` : value}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
+    </div>
+  )
+}
+
 export default function AnnotationCanvas({ image, activeTool, onAnnotationCreated, onSetupAi }: Props) {
   const stageRef = useRef<Konva.Stage>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const imageNodeRef = useRef<Konva.Image>(null)
 
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 })
   // scale: zoom level. imgX/imgY: top-left of image in stage pixels
@@ -102,6 +128,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const [imgX, setImgX] = useState(0)
   const [imgY, setImgY] = useState(0)
   const userZoomedRef = useRef(false)
+  const [showDisplayOptions, setShowDisplayOptions] = useState(false)
 
   // 'anonymous' crossOrigin: required so Konva canvas stays untainted when
   // we call toDataURL() for SAM prediction. Works because localfile:// serves
@@ -141,8 +168,12 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
   const { annotations, selectedId, setSelectedId, createAnnotation, updateGeometry } =
     useAnnotationStore()
-  const { labels } = useLabelStore()
-  const { activeLabelClassId, annotationsVisible, sidecarOnline, sidecarRuntime, setSidecarRuntime, toggleAnnotationsVisible } = useUIStore()
+  const labels = useLabelStore((s) => s.labels)
+  const isLabelVisible = useLabelStore((s) => s.isLabelVisible)
+  const visibilityById = useAnnotationStore((s) => s.visibilityById)
+  const { activeLabelClassId, annotationsVisible, sidecarOnline, sidecarRuntime, setSidecarRuntime, toggleAnnotationsVisible, displayContrast, displayBrightness, hideLabelText, setDisplayContrast, setDisplayBrightness, setHideLabelText } = useUIStore()
+  const theme = useSettingsStore((s) => s.settings.theme)
+  const setTheme = useSettingsStore((s) => s.setTheme)
   const { language, t } = useI18n()
 
   // Wrapper: create annotation and notify parent for label quick-pick
@@ -178,6 +209,17 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
       fitImage(w, h)
     }
   }, [loadedImg]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const node = imageNodeRef.current
+    if (!node || !loadedImg) return
+
+    node.filters([Konva.Filters.Brighten, Konva.Filters.Contrast])
+    node.brightness(displayBrightness / 100)
+    node.contrast(displayContrast)
+    node.cache()
+    node.getLayer()?.batchDraw()
+  }, [displayBrightness, displayContrast, loadedImg])
 
   // Resize observer — also re-fits image if user hasn't manually zoomed
   useEffect(() => {
@@ -606,8 +648,10 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     return Math.hypot(px - nx, py - ny) <= thresholdPx
   }
 
+  const visibleAnnotations = annotations.filter((ann) => (visibilityById[ann.id] ?? true) && isLabelVisible(ann.label_class_id))
+
   const annotationContainsPoint = useCallback((annotationId: string, point: NormalizedPoint) => {
-    const annotation = annotations.find((ann) => ann.id === annotationId)
+    const annotation = visibleAnnotations.find((ann) => ann.id === annotationId)
     if (!annotation) return false
 
     if (annotation.annotation_type === 'bbox') {
@@ -642,7 +686,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     }
 
     return false
-  }, [annotations, dispW, dispH])
+  }, [visibleAnnotations, dispW, dispH])
 
   const handleAnnotationSelectionAtPointer = useCallback((clickedId: string) => {
     const stage = stageRef.current
@@ -653,7 +697,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     }
 
     const point = toNormalized(pointer.x, pointer.y)
-    const candidates = annotations.filter((ann) => annotationContainsPoint(ann.id, point)).map((ann) => ann.id)
+    const candidates = visibleAnnotations.filter((ann) => annotationContainsPoint(ann.id, point)).map((ann) => ann.id)
     const ordered = [clickedId, ...candidates.filter((id) => id !== clickedId)]
 
     if (ordered.length === 0) {
@@ -677,7 +721,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     const nextId = ordered[(ordered.indexOf(selectedId) + 1) % ordered.length]
     setSelectedId(nextId)
     return true
-  }, [annotations, annotationContainsPoint, selectedId, setSelectedId, toNormalized])
+  }, [annotationContainsPoint, selectedId, setSelectedId, toNormalized, visibleAnnotations])
 
   const activeSamLabel = labels.find((label) => label.id === getActiveLabelId()) ?? null
   const samPreviewColor = activeSamLabel?.color ?? 'var(--accent)'
@@ -1014,6 +1058,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         <Layer>
           {loadedImg && (
             <KonvaImage
+              ref={imageNodeRef}
               image={loadedImg}
               x={imgX}
               y={imgY}
@@ -1042,7 +1087,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
 
         {/* Layer 2: Annotations — hidden when annotationsVisible is false (H key) */}
         <Layer visible={annotationsVisible} listening={annotationsVisible}>
-          {annotations.map((ann) => {
+          {visibleAnnotations.map((ann) => {
             const color = getLabelColor(ann.label_class_id)
             const labelName = getLabelName(ann.label_class_id)
             const isSelected = ann.id === selectedId
@@ -1050,6 +1095,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
               annotation: ann,
               color,
               labelName,
+              showLabelText: !hideLabelText,
               isSelected,
               imgX, imgY, imgW: dispW, imgH: dispH,
               onSelect: () => setSelectedId(ann.id),
@@ -1135,7 +1181,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         </Layer>
       </Stage>
 
-      {activeTool === 'sam' && samPreviewTags.length > 0 && (
+      {activeTool === 'sam' && !hideLabelText && samPreviewTags.length > 0 && (
         <div
           style={{
             position: 'absolute',
@@ -1218,8 +1264,52 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
           left: 16,
           bottom: 16,
           zIndex: 5,
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: 10,
         }}
       >
+        {showDisplayOptions && (
+          <div style={{
+            position: 'absolute',
+            left: 0,
+            bottom: 52,
+            width: 286,
+            padding: 16,
+            borderRadius: 16,
+            background: 'var(--panel-floating)',
+            border: '1px solid var(--border)',
+            boxShadow: '0 16px 36px rgba(0,0,0,0.22)',
+            backdropFilter: 'blur(12px)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+            pointerEvents: 'auto',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>{language === 'ko' ? 'Display Options' : 'Display Options'}</div>
+              <button onClick={() => { setDisplayContrast(0); setDisplayBrightness(0) }} style={{ color: 'var(--accent)', background: 'none', fontSize: 16 }}>↻</button>
+            </div>
+
+            <DisplaySlider label="Contrast" value={displayContrast} min={-50} max={50} step={1} onChange={setDisplayContrast} />
+            <DisplaySlider label="Brightness" value={displayBrightness} min={-50} max={50} step={1} onChange={setDisplayBrightness} />
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{language === 'ko' ? 'Always Show Labels' : 'Always Show Labels'}</span>
+              <button onClick={() => setHideLabelText(!hideLabelText)} style={displayToggleButtonStyle(hideLabelText)}>
+                {hideLabelText ? '◌' : '◉'}
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{language === 'ko' ? 'Display Mode' : 'Display Mode'}</span>
+              <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} style={displayToggleButtonStyle(theme === 'light')}>
+                {theme === 'light' ? '☀' : '☾'}
+              </button>
+            </div>
+          </div>
+        )}
+
         <button
           onClick={toggleAnnotationsVisible}
           title={annotationsVisible ? t('topbar.hideAnnotations') : t('topbar.showAnnotations')}
@@ -1232,6 +1322,16 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
             <path d="M1.8 9C3.7 5.8 6.1 4.2 9 4.2C11.9 4.2 14.3 5.8 16.2 9C14.3 12.2 11.9 13.8 9 13.8C6.1 13.8 3.7 12.2 1.8 9Z" stroke="currentColor" strokeWidth="1.5" />
             <circle cx="9" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.5" />
             {!annotationsVisible && <path d="M3 15L15 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}
+          </svg>
+        </button>
+        <button
+          onClick={() => setShowDisplayOptions((value) => !value)}
+          title={language === 'ko' ? '화면 표시 옵션' : 'Display options'}
+          style={visibilityIconButtonStyle}
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M9 2.4V4.2M9 13.8V15.6M2.4 9H4.2M13.8 9H15.6M4.6 4.6L5.8 5.8M12.2 12.2L13.4 13.4M13.4 4.6L12.2 5.8M5.8 12.2L4.6 13.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.4" />
           </svg>
         </button>
       </div>

@@ -214,6 +214,7 @@ export interface VersionExportRequest {
   format: ExportFormat
   output_dir: string
   include_images: boolean
+  image_scope: 'annotated' | 'all'
   split?: SplitType
 }
 

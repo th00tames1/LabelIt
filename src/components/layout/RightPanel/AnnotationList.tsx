@@ -4,19 +4,13 @@ import { useLabelStore } from '../../../store/labelStore'
 import { useImageStore } from '../../../store/imageStore'
 import { yoloApi } from '../../../api/ipc'
 import { useI18n } from '../../../i18n'
-import type { Annotation, AnnotationType } from '../../../types'
-
-const TYPE_ICONS: Record<AnnotationType, string> = {
-  bbox: '⬜',
-  polygon: '⬟',
-  polyline: '∿',
-  keypoints: '⊕',
-  mask: '◈',
-}
+import type { Annotation } from '../../../types'
 
 export default function AnnotationList() {
   const { annotations, setAnnotations, selectedId, setSelectedId, deleteAnnotation, updateLabel, undo, redo } =
     useAnnotationStore()
+  const visibilityById = useAnnotationStore((s) => s.visibilityById)
+  const toggleAnnotationVisible = useAnnotationStore((s) => s.toggleAnnotationVisible)
   const { labels, load: reloadLabels } = useLabelStore()
   const activeImageId = useImageStore((s) => s.activeImageId)
   const { t } = useI18n()
@@ -200,9 +194,11 @@ export default function AnnotationList() {
             labelName={getLabelName(ann.label_class_id)}
             labelColor={getLabelColor(ann.label_class_id)}
             labels={labels}
+            isVisible={visibilityById[ann.id] ?? true}
             isLabelPickerOpen={openLabelPickerId === ann.id}
             onSelect={() => setSelectedId(ann.id)}
             onDelete={() => deleteAnnotation(ann.id)}
+            onToggleVisible={() => toggleAnnotationVisible(ann.id)}
             onChangeLabel={(labelId) => updateLabel(ann.id, labelId)}
             onAccept={() => handleAcceptOne(ann.id)}
             onReject={() => handleRejectOne(ann.id)}
@@ -217,7 +213,7 @@ export default function AnnotationList() {
 
 function AnnotationItem({
   annotation, isSelected, labelName, labelColor, labels,
-  onSelect, onDelete, onChangeLabel, onAccept, onReject,
+  isVisible, onSelect, onDelete, onToggleVisible, onChangeLabel, onAccept, onReject,
   isLabelPickerOpen, onToggleLabelPicker, onCloseLabelPicker,
 }: {
   annotation: Annotation
@@ -225,8 +221,10 @@ function AnnotationItem({
   labelName: string
   labelColor: string
   labels: { id: string; name: string; color: string }[]
+  isVisible: boolean
   onSelect: () => void
   onDelete: () => void
+  onToggleVisible: () => void
   onChangeLabel: (id: string | null) => void
   onAccept: () => void
   onReject: () => void
@@ -235,7 +233,6 @@ function AnnotationItem({
   onCloseLabelPicker: () => void
 }) {
   const { t } = useI18n()
-  const icon = TYPE_ICONS[annotation.annotation_type] ?? '?'
   const isAuto = annotation.source === 'yolo_auto'
 
   return (
@@ -251,13 +248,34 @@ function AnnotationItem({
           ? 'var(--bg-hover)'
           : isAuto ? 'rgba(var(--warning-rgb),0.06)' : 'transparent',
         borderLeft: `2px solid ${isSelected ? labelColor : isAuto ? 'var(--warning)' : 'transparent'}`,
+        opacity: isVisible ? 1 : 0.55,
         position: 'relative',
       }}
     >
       {/* Main row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {/* Type icon */}
-        <span style={{ fontSize: 14, flexShrink: 0 }}>{icon}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleVisible() }}
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            background: isVisible ? 'rgba(var(--accent-rgb),0.12)' : 'var(--bg-tertiary)',
+            color: isVisible ? 'var(--accent)' : 'var(--text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+          title={isVisible ? 'Hide label' : 'Show label'}
+        >
+          <svg width="14" height="14" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M1.8 9C3.7 5.8 6.1 4.2 9 4.2C11.9 4.2 14.3 5.8 16.2 9C14.3 12.2 11.9 13.8 9 13.8C6.1 13.8 3.7 12.2 1.8 9Z" stroke="currentColor" strokeWidth="1.5" />
+            <circle cx="9" cy="9" r="2.3" stroke="currentColor" strokeWidth="1.5" />
+            {!isVisible && <path d="M3 15L15 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}
+          </svg>
+        </button>
 
         {/* Label */}
         <div style={{ flex: 1, minWidth: 0 }}>

@@ -99,14 +99,14 @@ export default function AutoSplitDialog({ totalImages, onClose, onComplete }: Pr
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
           type="range"
-          min={0} max={100} value={value}
+          min={0} max={100} step={5} value={value}
           onChange={(e) => handleChange(field, parseInt(e.target.value))}
           style={{ flex: 1, accentColor: color }}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <input
-            type="number"
-            min={0} max={100} value={value}
+            <input
+              type="number"
+              min={0} max={100} step={1} value={value}
             onChange={(e) => handleChange(field, parseInt(e.target.value) || 0)}
             style={{
               width: 46, padding: '4px 6px', borderRadius: 5,

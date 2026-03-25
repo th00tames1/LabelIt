@@ -6,6 +6,8 @@ interface Props {
   color: string
   isSelected: boolean
   imgX: number; imgY: number; imgW: number; imgH: number
+  labelName?: string
+  showLabelText?: boolean
   onSelect: () => void
   onSelectAtPointer?: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void

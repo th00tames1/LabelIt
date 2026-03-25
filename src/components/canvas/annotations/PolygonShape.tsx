@@ -9,6 +9,7 @@ interface Props {
   isSelected: boolean
   imgX: number; imgY: number; imgW: number; imgH: number
   labelName?: string
+  showLabelText?: boolean
   onSelect: () => void
   onSelectAtPointer: () => boolean
   onUpdateGeometry: (geo: AnnotationGeometry) => void
@@ -18,7 +19,7 @@ interface Props {
 export default function PolygonShape({
   annotation, color, isSelected,
   imgX, imgY, imgW, imgH,
-  labelName,
+  labelName, showLabelText = true,
   onSelect, onSelectAtPointer, onUpdateGeometry, defaultCursor,
 }: Props) {
   const geo = annotation.geometry as PolygonGeometry
@@ -131,7 +132,7 @@ export default function PolygonShape({
     ? flatPoints.filter((_, i) => i % 2 === 1).reduce((a, b) => a + b, 0) / (flatPoints.length / 2)
     : 0
 
-  const showTag = isClosed && !!annotation.label_class_id && !!labelName
+  const showTag = showLabelText && isClosed && !!annotation.label_class_id && !!labelName
   const tagW = Math.max(40, (labelName?.length ?? 0) * 7 + 8)
   const tagH = 16
   const liveCx = cx + dragOffset.x

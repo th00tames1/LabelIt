@@ -1271,36 +1271,21 @@ async function writeSampleImage(sample: ResolvedSample, destinationPath: string)
   }
 
   if (sample.transform != null && Math.abs(sample.transform.freeRotation) >= 0.25) {
-    const rotated = await pipeline.rotate(sample.transform.freeRotation, {
-      background: sample.transform.resizeMode === 'white_edges'
-        ? { r: 255, g: 255, b: 255, alpha: 1 }
-        : { r: 0, g: 0, b: 0, alpha: 1 },
-    })
-
-    const { data, info } = await rotated.toBuffer({ resolveWithObject: true })
-    const cropWidth = Math.min(sample.width, info.width)
-    const cropHeight = Math.min(sample.height, info.height)
-    const cropLeft = Math.max(0, Math.floor((info.width - cropWidth) / 2))
-    const cropTop = Math.max(0, Math.floor((info.height - cropHeight) / 2))
-
-    pipeline = sharp(data).extract({
-      left: cropLeft,
-      top: cropTop,
-      width: cropWidth,
-      height: cropHeight,
-    })
-
-    if (cropWidth !== sample.width || cropHeight !== sample.height) {
-      pipeline = pipeline.extend({
-        top: Math.floor((sample.height - cropHeight) / 2),
-        bottom: Math.ceil((sample.height - cropHeight) / 2),
-        left: Math.floor((sample.width - cropWidth) / 2),
-        right: Math.ceil((sample.width - cropWidth) / 2),
-        background: sample.transform.resizeMode === 'white_edges'
-          ? { r: 255, g: 255, b: 255, alpha: 1 }
-          : { r: 0, g: 0, b: 0, alpha: 1 },
-      })
-    }
+    const background = sample.transform.resizeMode === 'white_edges'
+      ? { r: 255, g: 255, b: 255, alpha: 1 }
+      : { r: 0, g: 0, b: 0, alpha: 1 }
+    const backgroundHex = background.r === 255 ? '#ffffff' : '#000000'
+    const { data, info } = await pipeline.png().toBuffer({ resolveWithObject: true })
+    const encoded = data.toString('base64')
+    const centerX = info.width / 2
+    const centerY = info.height / 2
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${info.width}" height="${info.height}" viewBox="0 0 ${info.width} ${info.height}">
+        <rect width="100%" height="100%" fill="${backgroundHex}" />
+        <image href="data:image/png;base64,${encoded}" width="${info.width}" height="${info.height}" transform="rotate(${sample.transform.freeRotation} ${centerX} ${centerY})" />
+      </svg>
+    `
+    pipeline = sharp(Buffer.from(svg))
   }
 
   if (sample.transform?.adjustContrastMode === 'stretch') {

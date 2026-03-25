@@ -223,7 +223,7 @@ function AboutOverlay({ open, onClose, logo }: { open: boolean; onClose: () => v
         <img src={logo} alt="LabelIt" style={{ width: 220, maxWidth: '100%', height: 'auto', display: 'block', margin: '0 auto 16px' }} />
         <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>LabelIt</div>
         <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-          <div>Version 1.0</div>
+          <div>Version 1.0.1</div>
           <div>Heechan Jeong</div>
           <div>heechan.jeong@oregonstate.edu</div>
           <div>Oregon State University</div>

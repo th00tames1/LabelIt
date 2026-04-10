@@ -235,7 +235,7 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
   const gammaBrightnessFilter = useCallback((imageData: ImageData) => {
     if (displayBrightness === 0) return
     // Map slider -50..+50 → gamma: +50 → 0.32 (bright), -50 → 3.16 (dark)
-    const gamma = Math.pow(10, -displayBrightness / 100)
+    const gamma = Math.pow(10, displayBrightness / 100)
     const invGamma = 1 / gamma
     // Build a 256-entry lookup table for performance
     const lut = new Uint8Array(256)

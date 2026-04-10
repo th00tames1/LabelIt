@@ -86,9 +86,10 @@ export default function PolygonShape({
 
   // Click on the edge line to insert a vertex between the two nearest vertices
   const handleEdgeClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // Always prevent bubble so stage's polygon-draw handler doesn't add a new point
+    e.cancelBubble = true
     if (!isSelected) { onSelectAtPointer(); return }
     if (onSelectAtPointer()) return
-    e.cancelBubble = true
     const stage = e.target.getStage()
     if (!stage) return
     const pos = stage.getPointerPosition()

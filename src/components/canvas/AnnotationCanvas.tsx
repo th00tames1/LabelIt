@@ -205,9 +205,12 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
     return ann
   }, [createAnnotation, onAnnotationCreated])
 
-  // Fit image to canvas on load or image change
+  // Fit image to canvas on load or image change — also clear drawing state
   useEffect(() => {
     userZoomedRef.current = false
+    setPolygonPoints([])       // clear any in-progress polygon/polyline from previous image
+    setBboxStart(null)
+    setBboxCurrent(null)
     if (!containerRef.current) return
     const { clientWidth: w, clientHeight: h } = containerRef.current
     if (w > 0 && h > 0) {
@@ -251,11 +254,22 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
     const node = imageNodeRef.current
     if (!node || !loadedImg) return
 
+    const hasFilters = displayBrightness !== 0 || displayContrast !== 0
+    if (!hasFilters) {
+      // No filters active — clear cache so the image scales freely with zoom
+      node.clearCache()
+      node.filters([])
+      node.getLayer()?.batchDraw()
+      return
+    }
+
+    // Filters active — must cache for Konva filters to work.
+    // Re-cache whenever scale changes so the bitmap matches the display size.
     node.filters([gammaBrightnessFilter, Konva.Filters.Contrast])
     node.contrast(displayContrast)
     node.cache()
     node.getLayer()?.batchDraw()
-  }, [displayBrightness, displayContrast, loadedImg, gammaBrightnessFilter])
+  }, [displayBrightness, displayContrast, loadedImg, gammaBrightnessFilter, scale])
 
   // Resize observer — also re-fits image if user hasn't manually zoomed
   useEffect(() => {
@@ -596,56 +610,60 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
     setPolygonPoints([])
   }, [polygonPoints, createAndNotify, image.id, getActiveLabelId])
 
-  // Double-click while drawing polygon: auto-complete (removing the duplicate point added by the second click)
+  // Double-click while drawing polygon: auto-complete (removing the duplicate point
+  // added by the second click of the dblclick).
+  //
+  // IMPORTANT: createAndNotify (async side-effect) must NOT be called inside a
+  // setState updater — React may call updaters more than once (StrictMode / concurrent),
+  // which would create duplicate annotations ("ghost masks"). Instead we read
+  // polygonPoints from the closure, compute everything synchronously, clear state,
+  // then call createAndNotify outside.
+  //
   // Guard: on <canvas>, the browser fires dblclick even when the two clicks are at
   // very different positions (same DOM element). We verify that the last two placed
   // points are within 8 screen-pixels to avoid false finalization when the user is
   // simply clicking fast at different locations.
   const handleStageDblClick = useCallback(async (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button !== 0) return
+
     if (activeTool === 'polygon') {
-      setPolygonPoints((pts) => {
-        if (pts.length < 2) return pts
-        // Check that the last two points are close enough to be a true double-click
-        const last = pts[pts.length - 1]
-        const prev = pts[pts.length - 2]
-        const dx = (last.x - prev.x) * dispW
-        const dy = (last.y - prev.y) * dispH
-        if (Math.sqrt(dx * dx + dy * dy) > 8) return pts // not a real double-click
+      if (polygonPoints.length < 2) return
+      const last = polygonPoints[polygonPoints.length - 1]
+      const prev = polygonPoints[polygonPoints.length - 2]
+      const dx = (last.x - prev.x) * dispW
+      const dy = (last.y - prev.y) * dispH
+      if (Math.sqrt(dx * dx + dy * dy) > 8) return // not a real double-click
 
-        const trimmed = pts.slice(0, -1)
-        if (trimmed.length >= 3) {
-          const geometry: AnnotationGeometry = {
-            type: 'polygon',
-            points: trimmed.map(({ x, y }) => [x, y]),
-          }
-          createAndNotify(image.id, 'polygon', geometry, getActiveLabelId()).catch(console.error)
-          return []
+      const trimmed = polygonPoints.slice(0, -1)
+      setPolygonPoints([]) // clear immediately — before async creation
+
+      if (trimmed.length >= 3) {
+        const geometry: AnnotationGeometry = {
+          type: 'polygon',
+          points: trimmed.map(({ x, y }) => [x, y]),
         }
-        return trimmed
-      })
+        await createAndNotify(image.id, 'polygon', geometry, getActiveLabelId())
+      }
     } else if (activeTool === 'polyline') {
-      setPolygonPoints((pts) => {
-        if (pts.length < 2) return pts
-        const last = pts[pts.length - 1]
-        const prev = pts[pts.length - 2]
-        const dx = (last.x - prev.x) * dispW
-        const dy = (last.y - prev.y) * dispH
-        if (Math.sqrt(dx * dx + dy * dy) > 8) return pts
+      if (polygonPoints.length < 2) return
+      const last = polygonPoints[polygonPoints.length - 1]
+      const prev = polygonPoints[polygonPoints.length - 2]
+      const dx = (last.x - prev.x) * dispW
+      const dy = (last.y - prev.y) * dispH
+      if (Math.sqrt(dx * dx + dy * dy) > 8) return
 
-        const trimmed = pts.slice(0, -1)
-        if (trimmed.length >= 2) {
-          const geometry: AnnotationGeometry = {
-            type: 'polyline',
-            points: trimmed.map(({ x, y }) => [x, y]),
-          }
-          createAndNotify(image.id, 'polyline', geometry, getActiveLabelId()).catch(console.error)
-          return []
+      const trimmed = polygonPoints.slice(0, -1)
+      setPolygonPoints([])
+
+      if (trimmed.length >= 2) {
+        const geometry: AnnotationGeometry = {
+          type: 'polyline',
+          points: trimmed.map(({ x, y }) => [x, y]),
         }
-        return trimmed
-      })
+        await createAndNotify(image.id, 'polyline', geometry, getActiveLabelId())
+      }
     }
-  }, [activeTool, createAndNotify, image.id, getActiveLabelId, dispW, dispH])
+  }, [activeTool, polygonPoints, createAndNotify, image.id, getActiveLabelId, dispW, dispH])
 
   // F / 0 = fit to view
   useEffect(() => {

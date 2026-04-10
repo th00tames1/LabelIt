@@ -57,7 +57,15 @@
       "Bash(dir \"C:\\\\Users\\\\user\\\\Desktop\\\\work\\\\LabelIt\\\\dist\")",
       "Bash(node -e \"try { require\\(''''sharp''''\\); console.log\\(''''sharp available''''\\) } catch\\(e\\) { console.log\\(''''sharp not found: '''' + e.message\\) }\")",
       "Bash(npx tsc:*)",
-      "Bash(python -m py_compile python/services/sam_service.py)"
+      "Bash(python -m py_compile python/services/sam_service.py)",
+      "Bash(python -c \"import ultralytics; print\\(ultralytics.__version__\\)\")",
+      "Bash(python\\\\venv\\\\Scripts\\\\python.exe -c \"import ultralytics; print\\(ultralytics.__version__\\)\")",
+      "Bash(ls python/venv/Scripts/*.exe)",
+      "Bash(ls python/venv/bin/python*)",
+      "Bash(ls python/.venv/Scripts/*.exe)",
+      "Bash(ls python/.venv/bin/python*)",
+      "Bash(\"C:\\\\Users\\\\jeonghe\\\\Desktop\\\\Work\\\\LabelingTool\\\\python\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import ultralytics; print\\('ver:', ultralytics.__version__\\); from ultralytics.models.sam import SAM2Predictor; import inspect; src = inspect.getsource\\(SAM2Predictor.__call__\\); print\\(src[:3000]\\)\")",
+      "Bash('C:\\\\Users\\\\jeonghe\\\\Desktop\\\\Work\\\\LabelingTool\\\\python\\\\.venv\\\\Scripts\\\\python.exe' -c ':*)"
     ]
   }
 }

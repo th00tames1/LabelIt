@@ -95,7 +95,12 @@ class SAMService:
             )
             predictor_ctor = getattr(predictor_module, predictor_name)
             self._predictor = predictor_ctor(overrides={
-                "conf": 0.25,
+                "conf": 0.0,       # MUST be 0 for interactive point prompts —
+                                   # Ultralytics postprocess filters masks with
+                                   # pred_scores < conf.  Negative points lower
+                                   # confidence scores; conf=0.25 was causing ALL
+                                   # negative-aware masks to be silently dropped,
+                                   # making negative points have zero effect.
                 "task": "segment",
                 "mode": "predict",
                 "imgsz": 1024,
@@ -157,52 +162,139 @@ class SAMService:
 
         img_w, img_h = self._session_size
 
-        # Only send POSITIVE points to the SAM model.  SAM2.1 produces
-        # wildly inaccurate masks when negative points are included in the
-        # prompt.  Instead, we request multimask candidates using only the
-        # positive points, and let the candidate-ranking code (both here in
-        # _parse_results and on the frontend) pick the candidate that best
-        # avoids the negative-point regions.
-        positive_points = []
-        positive_labels = []
-        all_abs_points = []
+        # Separate positive / negative points
+        all_abs = []
+        all_labels = []
+        positive_abs = []
         for point, label in zip(points, point_labels):
             abs_pt = [int(point[0] * img_w), int(point[1] * img_h)]
-            all_abs_points.append(abs_pt)
+            all_abs.append(abs_pt)
+            all_labels.append(label)
             if label == 1:
-                positive_points.append(abs_pt)
-                positive_labels.append(1)
+                positive_abs.append(abs_pt)
 
-        # If there are no positive points at all, return empty
-        if not positive_points:
+        if not positive_abs:
             return [], [], 0.0
 
         abs_box = None
         if box is not None:
-            abs_box = [[
-                box[0] * img_w,
-                box[1] * img_h,
-                box[2] * img_w,
-                box[3] * img_h,
-            ]]
+            abs_box = [[box[0] * img_w, box[1] * img_h, box[2] * img_w, box[3] * img_h]]
 
-        # When negative points are present, always request multimask so the
-        # ranker has multiple candidates to choose from.
-        has_negatives = len(positive_points) < len(points)
-        effective_multimask = multimask or has_negatives
+        has_negatives = len(positive_abs) < len(all_abs)
 
+        # ── Strategy ─────────────────────────────────────────────────────
+        # Pass ALL points (positive + negative) to SAM — this is what
+        # Roboflow does.  SAM natively adjusts the mask boundary away from
+        # negative points.
+        #
+        # Previously the mask "jumped" because the FRONTEND was filtering
+        # out contours that contained negative points (now fixed).
+        #
+        # Safety net: if the all-points result doesn't cover every positive
+        # point, fall back to positive-only so the mask never disappears.
+        # Image embedding is cached, so the fallback call is ~50ms.
+
+        if has_negatives:
+            try:
+                results_all = predictor(
+                    points=[all_abs],
+                    labels=[all_labels],
+                    bboxes=abs_box,
+                    multimask_output=True,
+                    source=None,
+                )
+                # Debug: log mask count and scores for negative-point calls
+                if results_all and results_all[0].masks is not None:
+                    n_masks = len(results_all[0].masks.data) if hasattr(results_all[0].masks, 'data') else 0
+                    print(f"[SAM] neg-aware call: {n_masks} masks returned")
+                else:
+                    print(f"[SAM] neg-aware call: NO masks returned (filtered by conf?)")
+                best_all, score_all = self._pick_best_mask(results_all, positive_abs, img_w, img_h)
+                if best_all is not None:
+                    print(f"[SAM] using neg-aware mask (score={score_all:.3f})")
+                    return self._finalize_mask(best_all, score_all, img_w, img_h)
+                else:
+                    print(f"[SAM] neg-aware mask rejected by _pick_best_mask, falling back")
+            except Exception as exc:
+                print(f"[SAM] all-points prediction failed, falling back to positive-only: {exc}")
+                import traceback; traceback.print_exc()
+
+        # Positive-only (no negatives, or all-points failed validation)
         try:
-            results = predictor(
-                points=[positive_points],
-                labels=[positive_labels],
+            results_pos = predictor(
+                points=[positive_abs],
+                labels=[[1] * len(positive_abs)],
                 bboxes=abs_box,
-                multimask_output=effective_multimask,
+                multimask_output=True,
                 source=None,
             )
         except Exception as e:
             raise RuntimeError(f"SAM prompt inference failed: {e}") from e
 
-        return self._parse_results(results, img_w, img_h, effective_multimask, all_abs_points, point_labels)
+        best_pos, score_pos = self._pick_best_mask(results_pos, positive_abs, img_w, img_h)
+        if best_pos is None:
+            return [], [], 0.0
+
+        return self._finalize_mask(best_pos, score_pos, img_w, img_h)
+
+    def _finalize_mask(self, mask, score, img_w, img_h):
+        """Convert a boolean mask to the standard return format."""
+        polys = mask_to_contours(mask.astype(bool), img_w, img_h)
+        if not polys:
+            return [], [], 0.0
+        sorted_polys = sorted(polys, key=self._contour_area, reverse=True)
+        serialized = [{"contours": sorted_polys, "score": score, "area": float(mask.sum())}]
+        return serialized, sorted_polys, score
+
+    def _pick_best_mask(self, results, positive_abs, img_w, img_h):
+        """From SAM results, pick the smallest mask that contains ALL positive points."""
+        if not results or results[0].masks is None:
+            return None, 0.0
+
+        result = results[0]
+        scores = []
+        try:
+            if hasattr(result, "boxes") and result.boxes is not None and len(result.boxes.conf) > 0:
+                scores = [float(c.item()) for c in result.boxes.conf]
+        except Exception:
+            scores = []
+
+        candidates = []
+        if hasattr(result.masks, "data") and result.masks.data is not None:
+            for idx, tensor in enumerate(result.masks.data):
+                mask_np = tensor.cpu().numpy()
+                if mask_np.shape != (img_h, img_w):
+                    mask_img = PILImage.fromarray((mask_np * 255).astype(np.uint8))
+                    mask_img = mask_img.resize((img_w, img_h), 0)
+                    mask_np = np.array(mask_img) > 127
+                else:
+                    mask_np = mask_np > 0.5
+                mask_bool = mask_np.astype(bool)
+
+                # Check: does this mask contain ALL positive points?
+                all_inside = all(
+                    mask_bool[
+                        min(pt[1], img_h - 1),
+                        min(pt[0], img_w - 1),
+                    ]
+                    for pt in positive_abs
+                )
+                score = scores[idx] if idx < len(scores) else 0.0
+                candidates.append((mask_bool, score, all_inside, int(mask_bool.sum())))
+
+        if not candidates:
+            return None, 0.0
+
+        # Prefer masks covering all positives; among those, pick smallest
+        covering = [(m, s, area) for m, s, ok, area in candidates if ok]
+        if covering:
+            covering.sort(key=lambda x: x[2])  # smallest area
+            return covering[0][0], covering[0][1]
+
+        # Fallback: mask covering the most positive points, smallest area
+        candidates.sort(key=lambda x: (-sum(1 for pt in positive_abs
+            if x[0][min(pt[1], img_h-1), min(pt[0], img_w-1)]), x[3]))
+        return candidates[0][0], candidates[0][1]
 
     def _parse_results(self, results, img_w, img_h, multimask, prompt_points=None, prompt_labels=None):
         if not results or results[0].masks is None:
@@ -227,6 +319,7 @@ class SAMService:
                     mask_np = np.array(mask_img) > 127
                 else:
                     mask_np = mask_np > 0.5
+
                 polys = mask_to_contours(mask_np.astype(bool), img_w, img_h)
                 if polys:
                     mask_candidates.append({

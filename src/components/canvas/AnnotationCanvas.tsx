@@ -908,32 +908,35 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
   const positiveSamPoints = samPoints.filter((point) => point.label === 1)
   const negativeSamPoints = samPoints.filter((point) => point.label === 0)
   const activeSamCandidate = samCandidates[selectedSamCandidateIndex] ?? null
+
+  // Resolve which contours to display.
+  // The backend already handles negative-point trimming, so the frontend
+  // must NOT filter/penalise contours by negative points — that was causing
+  // the mask to jump to a completely wrong area or disappear.
+  // Frontend only picks the contour that best covers positive points.
   const resolvedSamContours = (() => {
     const candidateContours = activeSamCandidate?.contours ?? samContours
     if (candidateContours == null || candidateContours.length === 0) return []
 
-    const filteredByNegative = negativeSamPoints.length === 0
-      ? candidateContours
-      : candidateContours.filter((contour) => !negativeSamPoints.some((point) => contourContainsPoint(contour, point)))
-    const preferredContours = filteredByNegative.length > 0 ? filteredByNegative : candidateContours
-
-    if (positiveSamPoints.length > 1) {
-      const containingAll = preferredContours.filter((contour) => positiveSamPoints.every((point) => contourContainsPoint(contour, point)))
+    // If multiple contours, prefer the one containing all positive points (smallest)
+    if (positiveSamPoints.length > 0) {
+      const containingAll = candidateContours.filter((contour) =>
+        positiveSamPoints.every((point) => contourContainsPoint(contour, point)))
       if (containingAll.length > 0) {
         return [pickSmallestContour(containingAll)]
       }
-      return [rankContours(preferredContours)[0]]
-    }
-
-    if (positiveSamPoint != null) {
-      const containing = preferredContours.filter((contour) => contourContainsPoint(contour, positiveSamPoint))
-      if (containing.length > 0) {
-        return [pickSmallestContour(containing)]
+      // Fallback: contour containing the most recent positive point
+      if (positiveSamPoint != null) {
+        const containing = candidateContours.filter((contour) =>
+          contourContainsPoint(contour, positiveSamPoint))
+        if (containing.length > 0) {
+          return [pickSmallestContour(containing)]
+        }
       }
-      return [rankContours(preferredContours)[0]]
     }
 
-    return [rankContours(preferredContours)[0]]
+    // Last resort: largest contour (first in the sorted list from backend)
+    return [candidateContours[0]]
   })()
 
   const clearSAMState = useCallback(() => {

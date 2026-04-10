@@ -32,7 +32,9 @@ def mask_to_contours(
     result = []
     for contour in filtered:
         # Simplify contour (Douglas-Peucker)
-        epsilon = max(1.5, 0.002 * cv2.arcLength(contour, True))
+        # Higher epsilon = smoother polygon with fewer vertices.
+        # 0.005 × perimeter gives clean boundaries similar to Roboflow.
+        epsilon = max(2.5, 0.005 * cv2.arcLength(contour, True))
         approx = cv2.approxPolyDP(contour, epsilon, True)
 
         if len(approx) < 3:

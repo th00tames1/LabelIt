@@ -29,9 +29,12 @@ export default function PolygonShape({
   const renderPoints = livePoints ?? geo.points
 
   // Flatten points for Konva Line: [x1, y1, x2, y2, ...]
+  // NOTE: dragOffset is NOT added here — the Line node's own position (set by
+  // Konva during drag) already provides the visual offset. Adding it again
+  // would cause double-displacement (mask moving 2× while vertices move 1×).
   const flatPoints = renderPoints.flatMap(([nx, ny]) => [
-    imgX + nx * imgW + dragOffset.x,
-    imgY + ny * imgH + dragOffset.y,
+    imgX + nx * imgW,
+    imgY + ny * imgH,
   ])
 
   const handleVertexDragEnd = (index: number, newX: number, newY: number) => {

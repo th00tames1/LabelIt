@@ -9,6 +9,7 @@ import ShortcutsHelp from '../../components/ShortcutsHelp'
 import TopBar from '../../components/layout/TopBar/TopBar'
 import ImageBrowser from '../../components/layout/Sidebar/ImageBrowser'
 import AnnotationCanvas from '../../components/canvas/AnnotationCanvas'
+import type { AnnotationCanvasHandle } from '../../components/canvas/AnnotationCanvas'
 import RightPanel from '../../components/layout/RightPanel/RightPanel'
 import CanvasErrorBoundary from '../../components/CanvasErrorBoundary'
 import ToolRail from '../../components/layout/ToolRail'
@@ -48,6 +49,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
   const [quickPickAnnotationId, setQuickPickAnnotationId] = useState<string | null>(null)
   const [workflowNotice, setWorkflowNotice] = useState<WorkflowNotice | null>(null)
   const activeImageIdRef = useRef<string | null>(activeImageId)
+  const canvasRef = useRef<AnnotationCanvasHandle>(null)
 
   useEffect(() => {
     activeImageIdRef.current = activeImageId
@@ -321,6 +323,11 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'z' && !e.shiftKey) {
           e.preventDefault()
+          // If currently drawing polygon/polyline, undo last placed point instead of store undo
+          if (canvasRef.current?.isDrawing()) {
+            canvasRef.current.undoLastPoint()
+            return
+          }
           undo().catch(console.error)
           return
         }
@@ -458,6 +465,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
           {activeImage ? (
             <CanvasErrorBoundary>
               <AnnotationCanvas
+                ref={canvasRef}
                 image={activeImage}
                 activeTool={activeTool}
                 onAnnotationCreated={(id) => { if (!activeLabelClassId) setQuickPickAnnotationId(id) }}

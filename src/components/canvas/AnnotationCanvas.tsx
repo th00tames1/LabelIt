@@ -1,5 +1,5 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
-import type { CSSProperties } from 'react'
+import { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef } from 'react'
+import type { CSSProperties, Ref } from 'react'
 import { Stage, Layer, Image as KonvaImage, Line, Circle } from 'react-konva'
 import useImage from 'use-image'
 import Konva from 'konva'
@@ -24,6 +24,13 @@ interface Props {
   activeTool: ToolType
   onAnnotationCreated?: (annotationId: string) => void
   onSetupAi?: () => void
+}
+
+export interface AnnotationCanvasHandle {
+  /** Returns true if currently drawing a polygon/polyline (has pending points) */
+  isDrawing: () => boolean
+  /** Remove last placed vertex during polygon/polyline drawing. Returns true if a point was removed. */
+  undoLastPoint: () => boolean
 }
 
 const MIN_SCALE = 0.05
@@ -117,7 +124,7 @@ function DisplaySlider({ label, value, min, max, step, onChange }: { label: stri
   )
 }
 
-export default function AnnotationCanvas({ image, activeTool, onAnnotationCreated, onSetupAi }: Props) {
+function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetupAi }: Props, ref: Ref<AnnotationCanvasHandle>) {
   const stageRef = useRef<Konva.Stage>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const imageNodeRef = useRef<Konva.Image>(null)
@@ -148,6 +155,16 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   const isPanning = useRef(false)
   const lastPointer = useRef({ x: 0, y: 0 })
   const previousToolRef = useRef<ToolType>(activeTool)
+
+  // Expose drawing state to parent for Ctrl+Z interception
+  useImperativeHandle(ref, () => ({
+    isDrawing: () => polygonPoints.length > 0,
+    undoLastPoint: () => {
+      if (polygonPoints.length === 0) return false
+      setPolygonPoints((pts) => pts.slice(0, -1))
+      return true
+    },
+  }), [polygonPoints.length])
 
   // SAM tool state
   const [samPoints, setSamPoints] = useState<SAMPoint[]>([])
@@ -210,16 +227,35 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     }
   }, [loadedImg]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Custom gamma-based brightness filter: preserves contrast/detail instead of linear wash-out.
+  // gamma < 1 brightens (lifts shadows), gamma > 1 darkens.
+  const gammaBrightnessFilter = useCallback((imageData: ImageData) => {
+    if (displayBrightness === 0) return
+    // Map slider -50..+50 → gamma: +50 → 0.32 (bright), -50 → 3.16 (dark)
+    const gamma = Math.pow(10, -displayBrightness / 100)
+    const invGamma = 1 / gamma
+    // Build a 256-entry lookup table for performance
+    const lut = new Uint8Array(256)
+    for (let i = 0; i < 256; i++) {
+      lut[i] = Math.min(255, Math.max(0, Math.round(Math.pow(i / 255, invGamma) * 255)))
+    }
+    const data = imageData.data
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = lut[data[i]]
+      data[i + 1] = lut[data[i + 1]]
+      data[i + 2] = lut[data[i + 2]]
+    }
+  }, [displayBrightness])
+
   useEffect(() => {
     const node = imageNodeRef.current
     if (!node || !loadedImg) return
 
-    node.filters([Konva.Filters.Brighten, Konva.Filters.Contrast])
-    node.brightness(displayBrightness / 100)
+    node.filters([gammaBrightnessFilter, Konva.Filters.Contrast])
     node.contrast(displayContrast)
     node.cache()
     node.getLayer()?.batchDraw()
-  }, [displayBrightness, displayContrast, loadedImg])
+  }, [displayBrightness, displayContrast, loadedImg, gammaBrightnessFilter])
 
   // Resize observer — also re-fits image if user hasn't manually zoomed
   useEffect(() => {
@@ -487,9 +523,9 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     if (activeTool === 'polygon') {
       if (polygonPoints.length >= 3) {
         const first = polygonPoints[0]
-        const dx = norm.x - first.x
-        const dy = norm.y - first.y
-        if (Math.sqrt(dx * dx + dy * dy) < 0.015) {
+        const dx = (norm.x - first.x) * dispW
+        const dy = (norm.y - first.y) * dispH
+        if (Math.sqrt(dx * dx + dy * dy) < 12) {
           const geometry: AnnotationGeometry = {
             type: 'polygon',
             points: polygonPoints.map(({ x, y }) => [x, y]),
@@ -561,14 +597,22 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
   }, [polygonPoints, createAndNotify, image.id, getActiveLabelId])
 
   // Double-click while drawing polygon: auto-complete (removing the duplicate point added by the second click)
+  // Guard: on <canvas>, the browser fires dblclick even when the two clicks are at
+  // very different positions (same DOM element). We verify that the last two placed
+  // points are within 8 screen-pixels to avoid false finalization when the user is
+  // simply clicking fast at different locations.
   const handleStageDblClick = useCallback(async (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button !== 0) return
     if (activeTool === 'polygon') {
-      // A dblclick fires after two clicks; polygonPoints already has the point from
-      // the first click of the double-click appended. Remove that last duplicate point
-      // then finalize if we have at least 3 vertices.
       setPolygonPoints((pts) => {
-        // pts still has the extra point from the first click — slice it off
+        if (pts.length < 2) return pts
+        // Check that the last two points are close enough to be a true double-click
+        const last = pts[pts.length - 1]
+        const prev = pts[pts.length - 2]
+        const dx = (last.x - prev.x) * dispW
+        const dy = (last.y - prev.y) * dispH
+        if (Math.sqrt(dx * dx + dy * dy) > 8) return pts // not a real double-click
+
         const trimmed = pts.slice(0, -1)
         if (trimmed.length >= 3) {
           const geometry: AnnotationGeometry = {
@@ -582,6 +626,13 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
       })
     } else if (activeTool === 'polyline') {
       setPolygonPoints((pts) => {
+        if (pts.length < 2) return pts
+        const last = pts[pts.length - 1]
+        const prev = pts[pts.length - 2]
+        const dx = (last.x - prev.x) * dispW
+        const dy = (last.y - prev.y) * dispH
+        if (Math.sqrt(dx * dx + dy * dy) > 8) return pts
+
         const trimmed = pts.slice(0, -1)
         if (trimmed.length >= 2) {
           const geometry: AnnotationGeometry = {
@@ -594,7 +645,7 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
         return trimmed
       })
     }
-  }, [activeTool, createAndNotify, image.id, getActiveLabelId])
+  }, [activeTool, createAndNotify, image.id, getActiveLabelId, dispW, dispH])
 
   // F / 0 = fit to view
   useEffect(() => {
@@ -1578,3 +1629,6 @@ export default function AnnotationCanvas({ image, activeTool, onAnnotationCreate
     </div>
   )
 }
+
+const AnnotationCanvas = forwardRef(AnnotationCanvasInner)
+export default AnnotationCanvas

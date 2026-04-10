@@ -156,7 +156,27 @@ class SAMService:
             raise RuntimeError("SAM image session is not prepared")
 
         img_w, img_h = self._session_size
-        abs_points = [[int(p[0] * img_w), int(p[1] * img_h)] for p in points]
+
+        # Only send POSITIVE points to the SAM model.  SAM2.1 produces
+        # wildly inaccurate masks when negative points are included in the
+        # prompt.  Instead, we request multimask candidates using only the
+        # positive points, and let the candidate-ranking code (both here in
+        # _parse_results and on the frontend) pick the candidate that best
+        # avoids the negative-point regions.
+        positive_points = []
+        positive_labels = []
+        all_abs_points = []
+        for point, label in zip(points, point_labels):
+            abs_pt = [int(point[0] * img_w), int(point[1] * img_h)]
+            all_abs_points.append(abs_pt)
+            if label == 1:
+                positive_points.append(abs_pt)
+                positive_labels.append(1)
+
+        # If there are no positive points at all, return empty
+        if not positive_points:
+            return [], [], 0.0
+
         abs_box = None
         if box is not None:
             abs_box = [[
@@ -166,18 +186,23 @@ class SAMService:
                 box[3] * img_h,
             ]]
 
+        # When negative points are present, always request multimask so the
+        # ranker has multiple candidates to choose from.
+        has_negatives = len(positive_points) < len(points)
+        effective_multimask = multimask or has_negatives
+
         try:
             results = predictor(
-                points=[abs_points] if abs_points else None,
-                labels=[point_labels] if point_labels else None,
+                points=[positive_points],
+                labels=[positive_labels],
                 bboxes=abs_box,
-                multimask_output=multimask,
+                multimask_output=effective_multimask,
                 source=None,
             )
         except Exception as e:
             raise RuntimeError(f"SAM prompt inference failed: {e}") from e
 
-        return self._parse_results(results, img_w, img_h, multimask, abs_points, point_labels)
+        return self._parse_results(results, img_w, img_h, effective_multimask, all_abs_points, point_labels)
 
     def _parse_results(self, results, img_w, img_h, multimask, prompt_points=None, prompt_labels=None):
         if not results or results[0].masks is None:

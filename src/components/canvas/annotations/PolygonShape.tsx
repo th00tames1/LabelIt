@@ -38,8 +38,10 @@ export default function PolygonShape({
   ])
 
   const handleVertexDragEnd = (index: number, newX: number, newY: number) => {
-    const nx = Math.max(0, Math.min(1, (newX - imgX) / imgW))
-    const ny = Math.max(0, Math.min(1, (newY - imgY) / imgH))
+    // No clamping — allow vertices outside image bounds so the polygon shape
+    // is preserved. Coordinates are clamped only at export time.
+    const nx = (newX - imgX) / imgW
+    const ny = (newY - imgY) / imgH
     const newPoints = geo.points.map(([px, py], i) =>
       i === index ? ([nx, ny] as [number, number]) : ([px, py] as [number, number])
     )
@@ -48,8 +50,8 @@ export default function PolygonShape({
   }
 
   const handleVertexDragMove = (index: number, newX: number, newY: number) => {
-    const nx = Math.max(0, Math.min(1, (newX - imgX) / imgW))
-    const ny = Math.max(0, Math.min(1, (newY - imgY) / imgH))
+    const nx = (newX - imgX) / imgW
+    const ny = (newY - imgY) / imgH
     setLivePoints(geo.points.map(([px, py], i) =>
       i === index ? ([nx, ny] as [number, number]) : ([px, py] as [number, number])
     ))
@@ -68,8 +70,6 @@ export default function PolygonShape({
     target.getStage()?.container().style.setProperty('cursor', cursor)
   }
 
-  const clamp = (value: number) => Math.max(0, Math.min(1, value))
-
   const handlePolygonDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target
     const dx = node.x() / imgW
@@ -77,14 +77,16 @@ export default function PolygonShape({
     node.position({ x: 0, y: 0 })
     setDragOffset({ x: 0, y: 0 })
 
+    // No per-vertex clamping — preserves polygon shape when dragged across
+    // image boundaries. Coordinates are clamped only at export time.
     onUpdateGeometry({
       ...geo,
-      points: geo.points.map(([x, y]) => [clamp(x + dx), clamp(y + dy)] as [number, number]),
+      points: geo.points.map(([x, y]) => [x + dx, y + dy] as [number, number]),
     })
     setCursor(node, 'move')
   }
 
-  // Click on the edge line to insert a vertex between the two nearest vertices
+  // Click on the polygon: if near an edge, insert a vertex; otherwise just select.
   const handleEdgeClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     // Always prevent bubble so stage's polygon-draw handler doesn't add a new point
     e.cancelBubble = true
@@ -95,28 +97,33 @@ export default function PolygonShape({
     const pos = stage.getPointerPosition()
     if (!pos) return
 
-    const clickNx = Math.max(0, Math.min(1, (pos.x - imgX) / imgW))
-    const clickNy = Math.max(0, Math.min(1, (pos.y - imgY) / imgH))
+    const clickNx = (pos.x - imgX) / imgW
+    const clickNy = (pos.y - imgY) / imgH
 
-    // Find the edge closest to the click point
+    // Find the edge closest to the click point (distance in screen pixels)
     const n = renderPoints.length
     let bestEdge = 0
-    let bestDist = Infinity
+    let bestDistPx = Infinity
 
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n
       const [ax, ay] = renderPoints[i]
       const [bx, by] = renderPoints[j]
-      // Point-to-segment distance in normalized space
       const abx = bx - ax; const aby = by - ay
       const len2 = abx * abx + aby * aby
       const t = len2 > 0
         ? Math.max(0, Math.min(1, ((clickNx - ax) * abx + (clickNy - ay) * aby) / len2))
         : 0
       const px = ax + t * abx; const py = ay + t * aby
-      const dist = Math.sqrt((clickNx - px) ** 2 + (clickNy - py) ** 2)
-      if (dist < bestDist) { bestDist = dist; bestEdge = i }
+      // Convert distance to screen pixels for a zoom-independent threshold
+      const dxPx = (clickNx - px) * imgW
+      const dyPx = (clickNy - py) * imgH
+      const distPx = Math.sqrt(dxPx * dxPx + dyPx * dyPx)
+      if (distPx < bestDistPx) { bestDistPx = distPx; bestEdge = i }
     }
+
+    // If the click is far from any edge (> 8 px), it's an interior click — just select, don't insert
+    if (bestDistPx > 8) return
 
     // Insert new point after bestEdge index
     const newPoints = [

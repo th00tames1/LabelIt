@@ -6,13 +6,40 @@ const BASE_URL = 'http://127.0.0.1:7842'
 
 async function post<T>(path: string, body: unknown, timeoutMs = 300_000): Promise<T> {
   // Large SAM models on CPU can take 60–180s; 300s timeout for safety
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  })
-  if (!res.ok) throw new Error(`Sidecar error: ${res.status} ${await res.text()}`)
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (err) {
+    // Distinguish "sidecar process not running" (connection refused) from
+    // "request took too long" (AbortSignal timeout) so the UI can react
+    // differently (offer to start sidecar vs offer to retry / cancel).
+    const message = err instanceof Error ? err.message : String(err)
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      throw new Error(`AI sidecar timed out after ${Math.round(timeoutMs / 1000)}s. The model may be loading — retry in a moment.`)
+    }
+    if (/Failed to fetch|ECONNREFUSED|connection refused/i.test(message)) {
+      throw new Error('AI sidecar is not running. Make sure Python is installed and try restarting LabelIt.')
+    }
+    throw new Error(`AI sidecar unreachable: ${message}`)
+  }
+  if (!res.ok) {
+    // FastAPI returns {"detail": "..."} on HTTPException; surface that text
+    // so the user sees the action-able message instead of raw HTTP code.
+    let detail = `${res.status}`
+    try {
+      const body = await res.json() as { detail?: unknown }
+      if (typeof body?.detail === 'string') detail = body.detail
+      else detail = `${res.status} ${JSON.stringify(body)}`
+    } catch {
+      try { detail = `${res.status} ${await res.text()}` } catch { /* ignore */ }
+    }
+    throw new Error(detail)
+  }
   return res.json() as Promise<T>
 }
 

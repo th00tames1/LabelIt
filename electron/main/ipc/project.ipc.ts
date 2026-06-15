@@ -24,36 +24,71 @@ export function getThumbnailDir(): string {
   return join(currentProjectDir, '.thumbnails')
 }
 
+// Turn raw fs/sqlite errors into something a user can act on.
+function describeProjectError(err: unknown, context: string): Error {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (/EACCES|permission denied/i.test(msg)) {
+    return new Error(`${context}: Permission denied. Choose a folder you own (avoid system-protected paths like Program Files).`)
+  }
+  if (/ENOSPC|disk full/i.test(msg)) {
+    return new Error(`${context}: Not enough disk space.`)
+  }
+  if (/EBUSY|locked|SQLITE_BUSY/i.test(msg)) {
+    return new Error(`${context}: Project file is locked by another process. Close any other LabelIt window using it and retry.`)
+  }
+  if (/SQLITE_CORRUPT|database disk image is malformed|file is not a database/i.test(msg)) {
+    return new Error(`${context}: Project file appears corrupted or is not a valid LabelIt project.`)
+  }
+  if (/ENOENT|no such file/i.test(msg)) {
+    return new Error(`${context}: File or folder no longer exists.`)
+  }
+  return new Error(`${context}: ${msg}`)
+}
+
 export function registerProjectIpc(): void {
   ipcMain.handle('project:create', async (_event, name: string, directory: string) => {
-    mkdirSync(directory, { recursive: true })
-    const dbPath = join(directory, 'project.lbl')
-    closeDatabase()
-    openDatabase(dbPath)
-    initProjectMeta(name)
-    currentProjectDir = directory
-    const thumbnailDir = join(directory, '.thumbnails')
-    mkdirSync(thumbnailDir, { recursive: true })
+    try {
+      mkdirSync(directory, { recursive: true })
+      const dbPath = join(directory, 'project.lbl')
+      closeDatabase()
+      openDatabase(dbPath)
+      initProjectMeta(name)
+      currentProjectDir = directory
+      const thumbnailDir = join(directory, '.thumbnails')
+      mkdirSync(thumbnailDir, { recursive: true })
 
-    addRecent({ name, file_path: dbPath, last_opened: Date.now(), image_count: 0 })
+      addRecent({ name, file_path: dbPath, last_opened: Date.now(), image_count: 0 })
 
-    // Auto-import images and annotations already present in the project folder
-    await importFolder(directory, thumbnailDir).catch((err) => {
-      console.warn('[project:create] Auto-import failed:', err.message)
-    })
+      // Auto-import images and annotations already present in the project folder.
+      // We catch separately because a partial import failure shouldn't make the
+      // whole project-create call fail — the project is already created.
+      await importFolder(directory, thumbnailDir).catch((err) => {
+        console.warn('[project:create] Auto-import failed:', err.message)
+      })
 
-    return getProjectMeta()
+      return getProjectMeta()
+    } catch (err) {
+      throw describeProjectError(err, 'Failed to create project')
+    }
   })
 
   ipcMain.handle('project:open', async (_event, filePath: string) => {
-    closeDatabase()
-    openDatabase(filePath)
-    currentProjectDir = join(filePath, '..')
-    mkdirSync(join(currentProjectDir, '.thumbnails'), { recursive: true })
+    try {
+      if (!existsSync(filePath)) {
+        throw new Error('Project file no longer exists. It may have been moved or deleted.')
+      }
+      closeDatabase()
+      openDatabase(filePath)
+      currentProjectDir = join(filePath, '..')
+      mkdirSync(join(currentProjectDir, '.thumbnails'), { recursive: true })
 
-    const meta = getProjectMeta()
-    addRecent({ name: meta.name, file_path: filePath, last_opened: Date.now(), image_count: 0 })
-    return meta
+      const meta = getProjectMeta()
+      addRecent({ name: meta.name, file_path: filePath, last_opened: Date.now(), image_count: 0 })
+      return meta
+    } catch (err) {
+      currentProjectDir = null
+      throw describeProjectError(err, 'Failed to open project')
+    }
   })
 
   ipcMain.handle('project:close', async () => {

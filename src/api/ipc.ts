@@ -36,7 +36,12 @@ export interface SplitRatios {
 }
 
 export interface ImportResult {
-  imported: number; skipped: number; errors: string[]
+  imported: number
+  skipped: number
+  annotations_imported: number   // labels auto-loaded from companion YOLO/COCO/VOC/CSV files
+  images_with_annotations: number
+  existing_images_relabeled: number // existing images that had 0 annotations and just got labels attached
+  errors: string[]
 }
 
 // ─── Project ──────────────────────────────────────────────────────────────────
@@ -73,6 +78,8 @@ export const imageApi = {
   updateNull: (id: string, isNull: boolean): Promise<void> =>
     api.image.updateNull(id, isNull),
   autoSplit: (ratios: SplitRatios): Promise<void> => api.image.autoSplit(ratios),
+  delete: (ids: string[]): Promise<{ deleted: number; thumbnails_removed: number }> =>
+    api.image.delete(ids),
   showOpenDialog: (): Promise<string[] | null> => api.image.showOpenDialog(),
   showFolderDialog: (): Promise<string | null> => api.image.showFolderDialog(),
 }

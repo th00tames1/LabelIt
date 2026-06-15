@@ -65,7 +65,17 @@
       "Bash(ls python/.venv/Scripts/*.exe)",
       "Bash(ls python/.venv/bin/python*)",
       "Bash(\"C:\\\\Users\\\\jeonghe\\\\Desktop\\\\Work\\\\LabelingTool\\\\python\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import ultralytics; print\\('ver:', ultralytics.__version__\\); from ultralytics.models.sam import SAM2Predictor; import inspect; src = inspect.getsource\\(SAM2Predictor.__call__\\); print\\(src[:3000]\\)\")",
-      "Bash('C:\\\\Users\\\\jeonghe\\\\Desktop\\\\Work\\\\LabelingTool\\\\python\\\\.venv\\\\Scripts\\\\python.exe' -c ':*)"
+      "Bash('C:\\\\Users\\\\jeonghe\\\\Desktop\\\\Work\\\\LabelingTool\\\\python\\\\.venv\\\\Scripts\\\\python.exe' -c ':*)",
+      "Bash(npm install:*)",
+      "Bash(curl -s --connect-timeout 3 http://127.0.0.1:7842/health)",
+      "Bash(tasklist /FI \"IMAGENAME eq python.exe\")",
+      "Bash(powershell -Command \"Get-Process python -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, StartTime | Format-Table -AutoSize\")",
+      "Bash(powershell -Command \"Get-Process -Name 'python*' -ErrorAction SilentlyContinue | Format-Table Id,ProcessName -AutoSize; if \\(-not \\(Get-Process -Name 'python*' -ErrorAction SilentlyContinue\\)\\) { Write-Host 'NO_PYTHON_PROCESS' }\")",
+      "Bash(powershell -Command \"Invoke-WebRequest -Uri 'http://127.0.0.1:7842/health' -UseBasicParsing -TimeoutSec 3 | Select-Object -ExpandProperty Content\")",
+      "Bash(python -c ':*)",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 7842 -ErrorAction SilentlyContinue | Select-Object LocalPort,OwningProcess,State | Format-Table -AutoSize\")",
+      "Bash(powershell -Command \"Get-Process -Id 480 -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,Path,StartTime | Format-List\")",
+      "Bash(npm run *)"
     ]
   }
 }

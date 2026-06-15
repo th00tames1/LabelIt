@@ -4,7 +4,7 @@ import { imageApi } from '../../../api/ipc'
 import { useImageStore } from '../../../store/imageStore'
 import { useUIStore } from '../../../store/uiStore'
 import { useI18n } from '../../../i18n'
-import type { Image, ImageStatus, SplitType } from '../../../types'
+import type { Image, ImageStatus, SplitType, ImportResult } from '../../../types'
 import { toLocalFileUrl } from '../../../utils/paths'
 
 const ITEM_HEIGHT = 76
@@ -198,6 +198,71 @@ function ImageItem({
   )
 }
 
+// Build a short, glanceable summary of an import — shown in a banner above the
+// image list for ~7s so the user can confirm what landed.  Honours i18n keys
+// for plural suffix handling.
+function describeImportResult(
+  result: ImportResult,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): { tone: 'success' | 'warning' | 'error'; message: string } | null {
+  if (result.errors.length > 0 && result.imported === 0 && result.existing_images_relabeled === 0) {
+    return { tone: 'error', message: t('sidebar.importDoneFailed', { message: result.errors[0] }) }
+  }
+
+  // Case A: no new images, but labels were attached to existing-but-unlabeled
+  // images. This is the "drop label files into an already-imported folder"
+  // workflow — surface it clearly so the user sees the relabel happened.
+  if (result.imported === 0 && result.existing_images_relabeled > 0) {
+    return {
+      tone: 'success',
+      message: t('sidebar.importDoneRelabeledOnly', {
+        annotations: result.annotations_imported,
+        annSuffix: result.annotations_imported === 1 ? '' : 's',
+        relabeled: result.existing_images_relabeled,
+        relabeledSuffix: result.existing_images_relabeled === 1 ? '' : 's',
+      }),
+    }
+  }
+
+  // Case B: nothing new at all (all skipped, none relabeled).
+  if (result.imported === 0) {
+    if (result.skipped === 0) return null
+    return { tone: 'warning', message: t('sidebar.importDoneNoneNew', { skipped: result.skipped }) }
+  }
+
+  // Case C: new images were added (with or without auto-loaded labels).
+  // `images_with_annotations` already includes both new-with-labels and
+  // existing-relabeled, so subtract the existing-relabeled count to get the
+  // count of newly-imported images that got labels.
+  const newImagesWithLabels = Math.max(0, result.images_with_annotations - result.existing_images_relabeled)
+  const base = result.annotations_imported > 0
+    ? t('sidebar.importDoneWithLabels', {
+        imported: result.imported,
+        suffix: result.imported === 1 ? '' : 's',
+        annotations: result.annotations_imported,
+        annSuffix: result.annotations_imported === 1 ? '' : 's',
+        labeled: newImagesWithLabels,
+        labeledSuffix: newImagesWithLabels === 1 ? '' : 's',
+      })
+    : t('sidebar.importDone', { imported: result.imported, suffix: result.imported === 1 ? '' : 's' })
+
+  const relabelSuffix = result.existing_images_relabeled > 0
+    ? t('sidebar.importDoneRelabeledAlso', {
+        relabeled: result.existing_images_relabeled,
+        relabeledSuffix: result.existing_images_relabeled === 1 ? '' : 's',
+      })
+    : ''
+
+  const dupSuffix = result.skipped > result.existing_images_relabeled
+    ? t('sidebar.importDoneSkipped', {
+        skipped: result.skipped - result.existing_images_relabeled,
+        suffix: result.skipped - result.existing_images_relabeled === 1 ? '' : 's',
+      })
+    : ''
+
+  return { tone: 'success', message: base + relabelSuffix + dupSuffix }
+}
+
 export default function ImageBrowser({ images, activeImageId, onSelectImage, onImportComplete }: Props) {
   const updateImageInList = useImageStore((s) => s.updateImageInList)
   const setImporting = useUIStore((s) => s.setImporting)
@@ -207,6 +272,23 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
   const [viewStatus, setViewStatus] = useState<ViewStatus>('all')
   const [viewSplit, setViewSplit] = useState<ViewSplit>('all')
+  // Inline import-result banner. Auto-dismisses 7s after the result lands so
+  // users can briefly verify what was added (incl. auto-loaded labels) without
+  // a modal interrupting their flow.
+  const [importNotice, setImportNotice] = useState<{ tone: 'success' | 'warning' | 'error'; message: string } | null>(null)
+  useEffect(() => {
+    if (!importNotice) return
+    const timer = setTimeout(() => setImportNotice(null), 7000)
+    return () => clearTimeout(timer)
+  }, [importNotice])
+  // Drag-over visual feedback. The native HTML5 dragenter/leave events fire on
+  // every child node, so we keep a counter to know when the drag truly leaves
+  // the sidebar (counter back to 0).
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounter = useRef(0)
+  // Remove-image confirmation modal state. Holds the image being removed so
+  // the dialog can show its filename and annotation count.
+  const [pendingRemoval, setPendingRemoval] = useState<Image | null>(null)
 
   // Close context menu on outside click
   useEffect(() => {
@@ -256,48 +338,143 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
       const filePaths = await imageApi.showOpenDialog()
       if (!filePaths) return
       setImporting(true)
-      await imageApi.import(filePaths)
+      const result = await imageApi.import(filePaths)
       const updated = await imageApi.list()
       await onImportComplete(updated)
+      setImportNotice(describeImportResult(result, t))
     } catch (error) {
       console.error(error)
+      setImportNotice({ tone: 'error', message: t('sidebar.importDoneFailed', { message: (error as Error).message }) })
     } finally {
       setImporting(false)
     }
-  }, [setImporting, onImportComplete])
+  }, [setImporting, onImportComplete, t])
 
   const handleImportFolder = useCallback(async () => {
     try {
       const folderPath = await imageApi.showFolderDialog()
       if (!folderPath) return
       setImporting(true)
-      await imageApi.importFolder(folderPath)
+      const result = await imageApi.importFolder(folderPath)
       const updated = await imageApi.list()
       await onImportComplete(updated)
+      setImportNotice(describeImportResult(result, t))
     } catch (error) {
       console.error(error)
+      setImportNotice({ tone: 'error', message: t('sidebar.importDoneFailed', { message: (error as Error).message }) })
     } finally {
       setImporting(false)
     }
-  }, [setImporting, onImportComplete])
+  }, [setImporting, onImportComplete, t])
+
+  // Drag-and-drop: accepts (a) loose image files, (b) a whole folder dragged
+  // from the OS file manager, or (c) a mix.  For each dropped entry we look at
+  // `webkitGetAsEntry()` — if it's a directory we forward to importFolder so
+  // the YOLO/COCO/VOC label sidecars get auto-loaded; if it's a file we batch
+  // it for importImages.  Counter-based drag-over tracking gives smooth visual
+  // feedback even as the cursor crosses child elements.
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    dragCounter.current += 1
+    if (e.dataTransfer.types.includes('Files')) setIsDragOver(true)
+  }, [])
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    dragCounter.current = Math.max(0, dragCounter.current - 1)
+    if (dragCounter.current === 0) setIsDragOver(false)
+  }, [])
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }, [])
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
+    dragCounter.current = 0
+    setIsDragOver(false)
     try {
-      const files = Array.from(e.dataTransfer.files)
-        .filter((f) => /\.(jpg|jpeg|png|bmp|webp|tiff|tif)$/i.test(f.name))
-        .map((f) => (f as File & { path: string }).path)
-      if (files.length === 0) return
+      // Separate directories from loose files BEFORE iterating `dataTransfer.files`,
+      // because webkitGetAsEntry() must be called synchronously on the items.
+      const items = Array.from(e.dataTransfer.items ?? [])
+      const fileEntries = Array.from(e.dataTransfer.files ?? []) as Array<File & { path: string }>
+      const folderPaths: string[] = []
+      const loosePaths: string[] = []
+
+      // The `path` property on the File object is an Electron extension giving
+      // the absolute path on disk — exactly what the main process needs.
+      items.forEach((item, idx) => {
+        const entry = (item as { webkitGetAsEntry?: () => { isDirectory?: boolean } | null }).webkitGetAsEntry?.()
+        const file = fileEntries[idx]
+        if (!file?.path) return
+        if (entry?.isDirectory) folderPaths.push(file.path)
+        else if (/\.(jpg|jpeg|png|bmp|webp|tiff|tif)$/i.test(file.name)) loosePaths.push(file.path)
+      })
+
+      // Fallback: some browsers/Electron versions don't populate items
+      if (folderPaths.length === 0 && loosePaths.length === 0) {
+        for (const f of fileEntries) {
+          if (f.path && /\.(jpg|jpeg|png|bmp|webp|tiff|tif)$/i.test(f.name)) loosePaths.push(f.path)
+        }
+      }
+
+      if (folderPaths.length === 0 && loosePaths.length === 0) return
       setImporting(true)
-      await imageApi.import(files)
+
+      // Aggregate results across multiple drops (e.g. one folder + a few loose files)
+      const aggregate: ImportResult = {
+        imported: 0, skipped: 0, annotations_imported: 0,
+        images_with_annotations: 0, existing_images_relabeled: 0, errors: [],
+      }
+      const merge = (r: ImportResult): void => {
+        aggregate.imported += r.imported
+        aggregate.skipped += r.skipped
+        aggregate.annotations_imported += r.annotations_imported
+        aggregate.images_with_annotations += r.images_with_annotations
+        aggregate.existing_images_relabeled += r.existing_images_relabeled
+        aggregate.errors.push(...r.errors)
+      }
+
+      for (const folder of folderPaths) merge(await imageApi.importFolder(folder))
+      if (loosePaths.length > 0) merge(await imageApi.import(loosePaths))
+
       const updated = await imageApi.list()
       await onImportComplete(updated)
+      setImportNotice(describeImportResult(aggregate, t))
     } catch (error) {
       console.error(error)
+      setImportNotice({ tone: 'error', message: t('sidebar.importDoneFailed', { message: (error as Error).message }) })
     } finally {
       setImporting(false)
     }
-  }, [setImporting, onImportComplete])
+  }, [setImporting, onImportComplete, t])
+
+  // Remove image from project (with confirmation).  Source file on disk is
+  // never touched — only the DB record + its annotations + the thumbnail.
+  const requestRemoveImage = useCallback((imageId: string) => {
+    const img = images.find((i) => i.id === imageId)
+    if (img) setPendingRemoval(img)
+  }, [images])
+
+  const confirmRemoveImage = useCallback(async () => {
+    if (!pendingRemoval) return
+    const target = pendingRemoval
+    setPendingRemoval(null)
+    try {
+      await imageApi.delete([target.id])
+      const updated = await imageApi.list()
+      await onImportComplete(updated)
+      setImportNotice({
+        tone: 'success',
+        message: t('sidebar.removeDoneOne', { filename: target.filename }),
+      })
+    } catch (error) {
+      console.error(error)
+      setImportNotice({
+        tone: 'error',
+        message: t('sidebar.removeDoneFailed', { message: (error as Error).message }),
+      })
+    }
+  }, [pendingRemoval, onImportComplete, t])
 
   const filteredImages = images.filter((image) => {
     const matchesStatus = viewStatus === 'all' || image.status === viewStatus || (viewStatus === 'labeled' && image.status === 'in_progress')
@@ -357,10 +534,31 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
         background: 'var(--bg-secondary)',
         borderRight: '1px solid var(--border)',
         flexShrink: 0,
+        position: 'relative',
       }}
-      onDragOver={(e) => e.preventDefault()}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {/* Drop-zone overlay — appears while user drags files/folders over the
+          sidebar. Pointer-events: none so it doesn't interfere with the drop. */}
+      {isDragOver && (
+        <div style={{
+          position: 'absolute', inset: 4, zIndex: 5000,
+          border: '2px dashed var(--accent)',
+          borderRadius: 10,
+          background: 'rgba(var(--accent-rgb), 0.12)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
+          padding: 16,
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', lineHeight: 1.4 }}>
+            {t('sidebar.dropOverlay')}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div style={{
         padding: '8px 10px',
@@ -392,6 +590,38 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
             {t('sidebar.folderButton')}
           </button>
         </div>
+        {importNotice && (
+          <div
+            role="status"
+            onClick={() => setImportNotice(null)}
+            style={{
+              padding: '8px 10px',
+              borderRadius: 6,
+              fontSize: 11,
+              lineHeight: 1.4,
+              cursor: 'pointer',
+              background: importNotice.tone === 'error'
+                ? 'rgba(239, 68, 68, 0.12)'
+                : importNotice.tone === 'warning'
+                  ? 'rgba(245, 158, 11, 0.12)'
+                  : 'rgba(34, 197, 94, 0.14)',
+              color: importNotice.tone === 'error'
+                ? '#fca5a5'
+                : importNotice.tone === 'warning'
+                  ? '#fbbf24'
+                  : '#86efac',
+              border: `1px solid ${
+                importNotice.tone === 'error'
+                  ? 'rgba(239, 68, 68, 0.35)'
+                  : importNotice.tone === 'warning'
+                    ? 'rgba(245, 158, 11, 0.35)'
+                    : 'rgba(34, 197, 94, 0.35)'
+              }`,
+            }}
+          >
+            {importNotice.message}
+          </div>
+        )}
         <div style={{
           border: '1px solid var(--border)',
           borderRadius: 6,
@@ -510,6 +740,78 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
           {SPLIT_OPTIONS.map((s) =>
             menuItem(splitLabel(s.value), s.color, () => handleSetSplit(s.value), ctxImage.split === s.value)
           )}
+          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+          <button
+            onClick={() => { requestRemoveImage(contextMenu.imageId); setContextMenu(null) }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              width: '100%', padding: '7px 10px',
+              background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
+              color: '#ef4444', fontWeight: 600, fontSize: 12,
+            }}
+          >
+            <span style={{ fontSize: 14, lineHeight: 1 }}>🗑</span>
+            {t('sidebar.contextRemove')}
+          </button>
+        </div>
+      )}
+
+      {/* Remove-image confirmation modal */}
+      {pendingRemoval && (
+        <div
+          onClick={() => setPendingRemoval(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 10000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: '20px 22px',
+              maxWidth: 420,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>
+              {t('sidebar.removeConfirmTitle')}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 18 }}>
+              {pendingRemoval.annotation_count > 0
+                ? t('sidebar.removeConfirmBody', {
+                    filename: pendingRemoval.filename,
+                    annotations: pendingRemoval.annotation_count,
+                    annSuffix: pendingRemoval.annotation_count === 1 ? '' : 's',
+                  })
+                : t('sidebar.removeConfirmBodyNoAnn', { filename: pendingRemoval.filename })}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setPendingRemoval(null)}
+                style={{
+                  padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
+                  border: '1px solid var(--border)', cursor: 'pointer',
+                }}
+              >
+                {t('sidebar.removeConfirmCancel')}
+              </button>
+              <button
+                onClick={confirmRemoveImage}
+                autoFocus
+                style={{
+                  padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                  background: '#dc2626', color: 'white', border: 'none', cursor: 'pointer',
+                }}
+              >
+                {t('sidebar.removeConfirmAction')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -286,6 +286,7 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
     return () => observer.disconnect()
   }, [image.id, image.width, image.height]) // eslint-disable-line react-hooks/exhaustive-deps
 
+
   const fitImage = (containerW: number, containerH: number) => {
     if (!imgW || !imgH) return
     const margin = 40
@@ -457,19 +458,36 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
   }, [samCandidates])
 
 
-  // ─── Wheel zoom ─────────────────────────────────────────────────────────────
+  // ─── Wheel: Roboflow-style ──────────────────────────────────────────────────
+  //   plain wheel        → pan vertically  (deltaY)
+  //   Shift + wheel      → pan horizontally (so trackpad/wheel-only users have
+  //                        a path for left/right scrolling on a zoomed image)
+  //   Ctrl  + wheel      → zoom in/out at the cursor
+  // Trackpads also emit deltaX directly — apply that as horizontal pan too.
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault()
     const stage = stageRef.current
     if (!stage) return
-    const pointer = stage.getPointerPosition()
-    if (!pointer) return
-    const factor = e.evt.deltaY < 0 ? 1.12 : 1 / 1.12
-    const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * factor))
-    applyScaleAt(newScale, pointer.x, pointer.y)
+
+    if (e.evt.ctrlKey || e.evt.metaKey) {
+      const pointer = stage.getPointerPosition()
+      if (!pointer) return
+      const factor = e.evt.deltaY < 0 ? 1.12 : 1 / 1.12
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * factor))
+      applyScaleAt(newScale, pointer.x, pointer.y)
+      return
+    }
+
+    // Pan: subtract the wheel delta so scrolling down moves the view down
+    // (image content moves up), matching native scroll feel.
+    const horizontal = e.evt.shiftKey
+    const dx = horizontal ? -e.evt.deltaY : -e.evt.deltaX
+    const dy = horizontal ? 0 : -e.evt.deltaY
+    setImgX((x) => x + dx)
+    setImgY((y) => y + dy)
   }, [scale, applyScaleAt])
 
-  // ─── Middle-mouse pan ────────────────────────────────────────────────────────
+  // ─── Pan: middle-mouse OR Alt+left-click ────────────────────────────────────
   const handleStageMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button === 1 || (e.evt.button === 0 && e.evt.altKey)) {
       isPanning.current = true
@@ -1364,7 +1382,10 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
             </div>
 
             <DisplaySlider label="Contrast" value={displayContrast} min={-50} max={50} step={1} onChange={setDisplayContrast} />
-            <DisplaySlider label="Brightness" value={displayBrightness} min={-50} max={50} step={1} onChange={setDisplayBrightness} />
+            {/* Brightness range expanded to ±100 so users can lift heavy shadows
+                in backlit photos (e.g., to spot soot on dark tree bark).
+                With gamma = 10^(value/100), +100 → gamma 10 (3× more lift than +50). */}
+            <DisplaySlider label="Brightness" value={displayBrightness} min={-100} max={100} step={1} onChange={setDisplayBrightness} />
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{language === 'ko' ? 'Always Show Labels' : 'Always Show Labels'}</span>

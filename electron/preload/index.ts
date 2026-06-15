@@ -38,6 +38,7 @@ const api = {
     updateNull: (id: string, isNull: boolean) =>
       ipcRenderer.invoke('image:updateNull', id, isNull),
     autoSplit: (ratios: unknown) => ipcRenderer.invoke('image:autoSplit', ratios),
+    delete: (ids: string[]) => ipcRenderer.invoke('image:delete', ids),
     showOpenDialog: () => ipcRenderer.invoke('image:showOpenDialog'),
     showFolderDialog: () => ipcRenderer.invoke('image:showFolderDialog'),
   },

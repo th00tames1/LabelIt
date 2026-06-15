@@ -174,3 +174,31 @@ export function imageExistsByPath(filePath: string): boolean {
   const row = getDatabase().prepare('SELECT id FROM images WHERE file_path = ?').get(filePath)
   return !!row
 }
+
+// Look up an already-imported image by its source file_path.
+// Used by the "drop label files into an existing image folder" workflow
+// so we can attach annotations to images that are already in the DB.
+export function getImageByPath(filePath: string): Image | null {
+  const row = getDatabase().prepare(`
+    SELECT i.*,
+    COALESCE((SELECT COUNT(*) FROM annotations a WHERE a.image_id = i.id), 0) AS annotation_count
+    FROM images i WHERE i.file_path = ?
+  `).get(filePath) as ImageRow | undefined
+  return row ? rowToImage(row) : null
+}
+
+// Delete one or more images from the project.  Annotations cascade automatically
+// (FK ON DELETE CASCADE).  Caller is responsible for cleaning up thumbnail
+// files — we return the freed thumbnail paths so the IPC layer can unlink them.
+// The source image files on disk are NEVER touched (LabelIt only stores links).
+export function deleteImages(ids: string[]): { deleted: number; thumbnailPaths: string[] } {
+  if (ids.length === 0) return { deleted: 0, thumbnailPaths: [] }
+  const db = getDatabase()
+  const placeholders = ids.map(() => '?').join(',')
+  const rows = db.prepare(
+    `SELECT thumbnail_path FROM images WHERE id IN (${placeholders})`
+  ).all(...ids) as { thumbnail_path: string | null }[]
+  const thumbnailPaths = rows.map((r) => r.thumbnail_path).filter((p): p is string => !!p)
+  const info = db.prepare(`DELETE FROM images WHERE id IN (${placeholders})`).run(...ids)
+  return { deleted: info.changes, thumbnailPaths }
+}

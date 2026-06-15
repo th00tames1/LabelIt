@@ -4,6 +4,13 @@ import type { AnnotationGeometry } from '../db/schema'
 
 type ImportedAnnotationType = 'bbox' | 'polygon' | 'polyline'
 
+// Read a file as UTF-8 with the byte-order-mark stripped if present.
+// Windows tools (Notepad, some exporters, Excel CSV) prepend a BOM and that
+// would otherwise make JSON parsing fail or the first YAML/text token unparseable.
+function readTextFile(path: string): string {
+  return readFileSync(path, 'utf-8').replace(/^﻿/, '')
+}
+
 export interface ImportedAnnotationInput {
   labelName: string
   annotation_type: ImportedAnnotationType
@@ -349,7 +356,7 @@ function loadYoloClassNames(labelPath: string, roots: string[], cache: Map<strin
 
 function parseYoloLabelFile(labelPath: string, classNames: string[]): ImportedAnnotationSeed[] {
   const seeds: ImportedAnnotationSeed[] = []
-  const lines = readFileSync(labelPath, 'utf-8')
+  const lines = readTextFile(labelPath)
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
@@ -385,7 +392,7 @@ function buildCocoLookup(jsonFiles: string[]): AnnotationLookup {
 
   for (const jsonPath of jsonFiles) {
     try {
-      const raw = JSON.parse(readFileSync(jsonPath, 'utf-8')) as {
+      const raw = JSON.parse(readTextFile(jsonPath)) as {
         images?: Array<{ id: string | number; file_name?: string }>
         annotations?: Array<{
           image_id?: string | number
@@ -465,7 +472,7 @@ function buildCsvLookup(csvFiles: string[]): AnnotationLookup {
 
   for (const csvPath of csvFiles) {
     try {
-      const rows = parseCsvRows(readFileSync(csvPath, 'utf-8'))
+      const rows = parseCsvRows(readTextFile(csvPath))
       if (rows.length < 2) continue
 
       const header = rows[0].map((value) => value.trim().toLowerCase())
@@ -518,7 +525,7 @@ function buildVocLookup(xmlFiles: string[]): AnnotationLookup {
 
   for (const xmlPath of xmlFiles) {
     try {
-      const xmlText = readFileSync(xmlPath, 'utf-8')
+      const xmlText = readTextFile(xmlPath)
       if (!xmlText.includes('<annotation')) continue
 
       const reference = readXmlTag(xmlText, 'filename')?.trim() || basename(xmlPath, extname(xmlPath))
@@ -825,7 +832,7 @@ function normalizeLookupKey(value: string): string {
 function loadCompanionClassNames(folderPath: string): string[] {
   const classesTxt = join(folderPath, 'classes.txt')
   if (existsSync(classesTxt)) {
-    return readFileSync(classesTxt, 'utf-8')
+    return readTextFile(classesTxt)
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
@@ -833,7 +840,7 @@ function loadCompanionClassNames(folderPath: string): string[] {
 
   const dataYaml = join(folderPath, 'data.yaml')
   if (existsSync(dataYaml)) {
-    const parsed = parseDataYamlNames(readFileSync(dataYaml, 'utf-8'))
+    const parsed = parseDataYamlNames(readTextFile(dataYaml))
     if (parsed.length > 0) return parsed
   }
 

@@ -48,7 +48,9 @@ const GROUPS = {
     {
       title: 'Canvas Controls',
       rows: [
-        ['Mouse wheel', 'Zoom in / out'],
+        ['Mouse wheel', 'Pan vertically'],
+        ['Shift + wheel', 'Pan horizontally'],
+        ['Ctrl + wheel', 'Zoom in / out'],
         ['Middle-drag', 'Pan the image'],
         ['Alt + left drag', 'Pan the image'],
         ['F  /  0', 'Fit image to the viewport'],
@@ -113,7 +115,9 @@ const GROUPS = {
     {
       title: '캔버스 조작',
       rows: [
-        ['마우스 휠', '확대 / 축소'],
+        ['마우스 휠', '세로 이동 (패닝)'],
+        ['Shift + 휠', '가로 이동 (패닝)'],
+        ['Ctrl + 휠', '확대 / 축소'],
         ['가운데 버튼 드래그', '이미지 이동'],
         ['Alt + 왼쪽 드래그', '이미지 이동'],
         ['F  /  0', '화면에 맞추기'],

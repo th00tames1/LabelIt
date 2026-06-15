@@ -110,6 +110,15 @@ export interface NormalizedPoint {
   y: number  // 0–1
 }
 
+export interface ImportResult {
+  imported: number          // images newly added to the project
+  skipped: number           // images already present (deduped by file path)
+  annotations_imported: number   // labels auto-loaded from companion YOLO/COCO/VOC/CSV files
+  images_with_annotations: number // count of imported images that received >=1 auto-loaded annotation
+  existing_images_relabeled: number // existing images that had 0 annotations and just got labels attached
+  errors: string[]
+}
+
 export interface AppSettings {
   language: AppLanguage
   theme: 'dark' | 'light' | 'system'

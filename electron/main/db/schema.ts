@@ -155,8 +155,11 @@ export interface SplitRatios {
 }
 
 export interface ImportResult {
-  imported: number
-  skipped: number
+  imported: number          // images newly added to the project
+  skipped: number           // images already present (deduped by file path)
+  annotations_imported: number   // labels auto-loaded from companion YOLO/COCO/VOC/CSV files
+  images_with_annotations: number // count of imported images that received >=1 auto-loaded annotation
+  existing_images_relabeled: number // existing images that had 0 annotations and just got labels attached
   errors: string[]
 }
 

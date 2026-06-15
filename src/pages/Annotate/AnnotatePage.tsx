@@ -72,6 +72,14 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
     if (activeImageIdRef.current == null && nextImages.length > 0) {
       setActiveImageId(nextImages[0].id)
       await loadForImage(nextImages[0].id)
+      return
+    }
+
+    // The active image may have just been relabeled by the import (e.g. user
+    // dropped YOLO label files into an already-imported folder).  Reload its
+    // annotations so they show up on the canvas without a manual reselect.
+    if (activeImageIdRef.current != null) {
+      await loadForImage(activeImageIdRef.current)
     }
   }, [loadForImage, loadLabels, setActiveImageId, setImages])
 
@@ -93,7 +101,17 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
         await loadForImage(startImg.id)
       }
     }
-    load().catch(console.error)
+    load().catch((err) => {
+      // Surface load failures — a silent catch left the user staring at an
+      // empty canvas with no idea why nothing showed up.
+      console.error('[AnnotatePage] initial load failed:', err)
+      setWorkflowNotice({
+        tone: 'warning',
+        title: t('notice.loadFailedTitle'),
+        message: (err instanceof Error ? err.message : String(err)),
+        targetTab: 'annotations',
+      })
+    })
 
     return () => { clear() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -155,8 +173,19 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
       await syncImportedData(nextImages, target.id)
     }
 
-    run().catch(console.error)
-  }, [menuImportSignal, syncImportedData])
+    run().catch((err) => {
+      // Menu-triggered imports used to silently swallow errors; users would
+      // click File→Import and nothing would happen with no feedback.  Now we
+      // surface the error in the workflow notice strip so the user knows why.
+      console.error('[menuImport] failed:', err)
+      setWorkflowNotice({
+        tone: 'warning',
+        title: t('notice.loadFailedTitle'),
+        message: err instanceof Error ? err.message : String(err),
+        targetTab: 'annotations',
+      })
+    })
+  }, [menuImportSignal, syncImportedData, t])
 
   const showCreateLabelNotice = useCallback(() => {
     setActiveTool('select')

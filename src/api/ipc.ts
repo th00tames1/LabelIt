@@ -29,6 +29,7 @@ export interface ImageFilter {
   split?: SplitType
   label_class_id?: string
   search?: string
+  exclude_excluded?: boolean
 }
 
 export interface SplitRatios {
@@ -80,6 +81,12 @@ export const imageApi = {
   autoSplit: (ratios: SplitRatios): Promise<void> => api.image.autoSplit(ratios),
   delete: (ids: string[]): Promise<{ deleted: number; thumbnails_removed: number }> =>
     api.image.delete(ids),
+  setExcluded: (ids: string[], excluded: boolean): Promise<{ changed: number }> =>
+    api.image.setExcluded(ids, excluded),
+  setStatusBatch: (ids: string[], status: ImageStatus): Promise<{ changed: number }> =>
+    api.image.setStatusBatch(ids, status),
+  setSplitBatch: (ids: string[], split: SplitType): Promise<{ changed: number }> =>
+    api.image.setSplitBatch(ids, split),
   showOpenDialog: (): Promise<string[] | null> => api.image.showOpenDialog(),
   showFolderDialog: (): Promise<string | null> => api.image.showFolderDialog(),
 }
@@ -195,6 +202,7 @@ export interface DatasetStats {
 
 export const statsApi = {
   get: (): Promise<DatasetStats> => api.stats.get(),
+  annotationTypesInUse: (): Promise<string[]> => api.stats.annotationTypesInUse(),
 }
 
 // ─── Sidecar ─────────────────────────────────────────────────────────────────

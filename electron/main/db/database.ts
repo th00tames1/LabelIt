@@ -111,6 +111,14 @@ CREATE INDEX IF NOT EXISTS idx_kp_defs_label_class ON keypoint_definitions(label
     filename: '003_image_flags.sql',
     sql: `ALTER TABLE images ADD COLUMN is_null INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    // Excluded images stay in the project (labels preserved) but are skipped by
+    // dataset split, export, and augmentation. Implemented as a dedicated flag
+    // so the underlying labeled/approved status is preserved across exclude/include.
+    filename: '004_image_excluded.sql',
+    sql: `ALTER TABLE images ADD COLUMN is_excluded INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_images_excluded ON images(is_excluded);`,
+  },
 ]
 
 interface MigrationRow {

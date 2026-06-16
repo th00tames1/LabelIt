@@ -8,7 +8,7 @@ import type { YOLOExportOptions, ExportResult } from '../../db/schema'
 export async function exportToYOLO(options: YOLOExportOptions): Promise<ExportResult> {
   const { output_dir, include_images, split } = options
   const labels = listLabels()
-  const images = listImages(split && split !== 'unassigned' ? { split } : undefined)
+  const images = listImages(split && split !== 'unassigned' ? { split, exclude_excluded: true } : { exclude_excluded: true })
 
   let annotationCount = 0
   let fileCount = 0

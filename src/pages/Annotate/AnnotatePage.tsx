@@ -48,6 +48,9 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
   // Quick-label popup: shown after drawing a new annotation
   const [quickPickAnnotationId, setQuickPickAnnotationId] = useState<string | null>(null)
   const [workflowNotice, setWorkflowNotice] = useState<WorkflowNotice | null>(null)
+  // Bumped to ask the image list to scroll the active image into the centre —
+  // triggered by clicking the filename overlay (not on every selection).
+  const [scrollToActiveSignal, setScrollToActiveSignal] = useState(0)
   const activeImageIdRef = useRef<string | null>(activeImageId)
   const canvasRef = useRef<AnnotationCanvasHandle>(null)
 
@@ -131,19 +134,22 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
     }
   }, [labels, activeLabelClassId, activeTool, setActiveLabelClassId, setActiveTool, setRightPanelTab])
 
+  // The active drawing tool PERSISTS across image navigation — we no longer force
+  // it to 'select'/'No-Objects' when landing on an empty or no-objects image,
+  // because that broke the flow of drawing boxes across many images (you'd have
+  // to re-pick the tool after every empty image). Drawing on a no-objects image
+  // simply clears its flag here.
   useEffect(() => {
-    const activeImage = images.find((image) => image.id === activeImageId) ?? null
-    if (!activeImage) return
-
-    if (activeImage.is_null) {
-      if (activeTool !== 'null') setActiveTool('null')
-      return
-    }
-
-    if (activeTool === 'null') {
-      setActiveTool('select')
-    }
-  }, [images, activeImageId, activeTool, setActiveTool])
+    const img = images.find((image) => image.id === activeImageId) ?? null
+    if (!img?.is_null || annotations.length === 0) return
+    // A label was drawn on a "no objects" image → it has objects after all.
+    imageApi.updateNull(img.id, false)
+      .then(async () => {
+        const updated = await imageApi.get(img.id)
+        if (updated) updateImageInList(updated)
+      })
+      .catch(console.error)
+  }, [annotations.length, activeImageId, images, updateImageInList])
 
   // Load annotations when active image changes
   const handleSelectImage = useCallback(async (imageId: string) => {
@@ -151,6 +157,42 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
     setActiveImageId(imageId)
     await loadForImage(imageId)
   }, [setActiveImageId, loadForImage])
+
+  // Exclude the active image from the dataset, then advance to a neighbour so the
+  // user keeps moving forward (req #8 / #14). The image stays in the project with
+  // its labels — it's just flagged out of split/export/augmentation.
+  const handleExcludeActiveImage = useCallback(async () => {
+    if (!activeImageId) return
+    const idx = images.findIndex((i) => i.id === activeImageId)
+    const after = idx >= 0 ? images.slice(idx + 1).find((i) => !i.is_excluded) : undefined
+    const before = idx > 0 ? [...images.slice(0, idx)].reverse().find((i) => !i.is_excluded) : undefined
+    const neighbor = after ?? before ?? null
+    try {
+      await imageApi.setExcluded([activeImageId], true)
+      const updated = await imageApi.get(activeImageId)
+      if (updated) updateImageInList(updated)
+      if (neighbor) await handleSelectImage(neighbor.id)
+    } catch (err) {
+      console.error('[exclude] failed:', err)
+    }
+  }, [activeImageId, images, updateImageInList, handleSelectImage])
+
+  // Toggle the "reviewed" (approved) state for the active image (req #15).
+  const handleToggleReviewed = useCallback(async () => {
+    if (!activeImageId) return
+    const img = images.find((i) => i.id === activeImageId)
+    if (!img) return
+    const nextStatus = img.status === 'approved'
+      ? ((annotations.length > 0 || img.is_null) ? 'labeled' : 'unlabeled')
+      : 'approved'
+    try {
+      await imageApi.updateStatus(activeImageId, nextStatus)
+      const updated = await imageApi.get(activeImageId)
+      if (updated) updateImageInList(updated)
+    } catch (err) {
+      console.error('[review] failed:', err)
+    }
+  }, [activeImageId, images, annotations.length, updateImageInList])
 
   useEffect(() => {
     if (menuImportSignal === 0) return
@@ -275,8 +317,6 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
 
       // ─── Tool shortcuts (no modifier) ──────────────────────────────────────
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        const currentImage = images.find((img) => img.id === activeImageId) ?? null
-
         // Space: mark current image as "labeled" and jump to next unlabeled
         if (e.key === ' ') {
           e.preventDefault()
@@ -319,15 +359,14 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
         }
         const requestedTool = toolMap[e.key.toLowerCase()]
         if (requestedTool) {
-          if (currentImage?.is_null && requestedTool !== 'select') {
-            e.preventDefault()
-            return
-          }
           if (requestedTool !== 'select' && labels.length === 0) {
             e.preventDefault()
             showCreateLabelNotice()
             return
           }
+          e.preventDefault()
+          // Tool persists across images; drawing on a no-objects image clears the
+          // flag automatically (see the un-null effect). No forced switching here.
           setActiveTool(requestedTool)
           return
         }
@@ -401,6 +440,7 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
           images={images}
           activeImageId={activeImageId}
           onSelectImage={handleSelectImage}
+          scrollToActiveSignal={scrollToActiveSignal}
           onImportComplete={async (newImages) => {
             await syncImportedData(newImages)
           }}
@@ -491,6 +531,35 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
             </div>
           )}
 
+          {/* Top-left overlay: current image name + position in the list (req #13).
+              Clicking it scrolls the image list to centre the current image. */}
+          {activeImage && (
+            <button
+              onClick={() => setScrollToActiveSignal((s) => s + 1)}
+              title={t('annotate.locateInList')}
+              style={{
+                position: 'absolute', top: 16, left: 16, zIndex: 5,
+                display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start',
+                padding: '6px 10px', borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                background: 'rgba(20,20,26,0.62)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                backdropFilter: 'blur(6px)',
+                maxWidth: 360,
+              }}
+            >
+              <div style={{
+                fontSize: 12, fontWeight: 600, color: '#f1f5f9',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 340,
+              }}>
+                {activeImage.filename}
+              </div>
+              <div style={{ fontSize: 11, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
+                {(images.findIndex((i) => i.id === activeImageId) + 1)} / {images.length}
+                {activeImage.is_excluded && ` · ${t('topbar.excludeTool')}`}
+              </div>
+            </button>
+          )}
+
           {activeImage ? (
             <CanvasErrorBoundary>
               <AnnotationCanvas
@@ -510,7 +579,36 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
             </div>
           )}
 
-          <ToolRail />
+          {/* Bottom-right review button — square icon button matching the tool
+              rail. Green when reviewed (approved), neutral otherwise (req #15/#4).
+              Shifts left when the SAM panel occupies the corner. */}
+          {activeImage && (() => {
+            const reviewed = activeImage.status === 'approved'
+            return (
+              <button
+                onClick={handleToggleReviewed}
+                title={t('annotate.reviewedHint')}
+                style={{
+                  position: 'absolute', bottom: 16, right: activeTool === 'sam' ? 256 : 16, zIndex: 5,
+                  width: 44, height: 44,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: 12, cursor: 'pointer',
+                  border: `1px solid ${reviewed ? '#22c55e' : 'var(--border)'}`,
+                  background: reviewed ? '#22c55e' : 'var(--panel-floating)',
+                  color: reviewed ? 'white' : 'var(--text-secondary)',
+                  boxShadow: '0 10px 28px rgba(0,0,0,0.18)',
+                  backdropFilter: 'blur(10px)',
+                }}
+              >
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M4 10.5L8 14.5L16 5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )
+          })()}
+
+          {/* Floating tool rail — overlays the right edge (req #3) */}
+          <ToolRail onExcludeActiveImage={handleExcludeActiveImage} />
         </div>
 
         {/* Right panel: annotations + labels */}

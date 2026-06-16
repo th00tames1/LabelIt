@@ -7,6 +7,7 @@ interface Props {
   annotation: Annotation
   color: string
   isSelected: boolean
+  movable?: boolean   // body/vertices draggable (true only in select mode)
   imgX: number; imgY: number; imgW: number; imgH: number
   labelName?: string
   showLabelText?: boolean
@@ -17,7 +18,7 @@ interface Props {
 }
 
 export default function PolygonShape({
-  annotation, color, isSelected,
+  annotation, color, isSelected, movable = true,
   imgX, imgY, imgW, imgH,
   labelName, showLabelText = true,
   onSelect, onSelectAtPointer, onUpdateGeometry, defaultCursor,
@@ -92,6 +93,9 @@ export default function PolygonShape({
     e.cancelBubble = true
     if (!isSelected) { onSelectAtPointer(); return }
     if (onSelectAtPointer()) return
+    // Vertex editing is only allowed in select mode (movable). In bbox mode a
+    // click just selects — no accidental vertex insertion.
+    if (!movable) return
     const stage = e.target.getStage()
     if (!stage) return
     const pos = stage.getPointerPosition()
@@ -157,7 +161,7 @@ export default function PolygonShape({
         strokeWidth={isSelected ? 2 : 1.5}
         fill={isClosed ? `${color}22` : undefined}
         closed={isClosed}
-        draggable={isSelected}
+        draggable={isSelected && movable}
         onClick={handleEdgeClick}
         onTap={onSelect}
         onDragStart={(e) => { onSelect(); setDragOffset({ x: 0, y: 0 }); setCursor(e.target, 'grabbing') }}
@@ -193,8 +197,9 @@ export default function PolygonShape({
         </>
       )}
 
-      {/* Vertex handles — right-click to delete, drag to move */}
-      {isSelected && renderPoints.map(([nx, ny], i) => (
+      {/* Vertex handles — right-click to delete, drag to move. Only shown in
+          select mode (movable); in bbox mode they'd block drawing over the shape. */}
+      {isSelected && movable && renderPoints.map(([nx, ny], i) => (
         <Circle
           key={i}
           x={imgX + nx * imgW + dragOffset.x}

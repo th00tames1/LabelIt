@@ -76,6 +76,7 @@ export interface Image {
   id: string; filename: string; file_path: string; thumbnail_path: string | null
   width: number; height: number; file_size: number
   is_null: boolean
+  is_excluded: boolean   // excluded from split/export/augmentation; labels preserved
   status: ImageStatus; split: SplitType
   imported_at: number; sort_order: number
   annotation_count: number   // computed: number of annotations on this image

@@ -39,6 +39,9 @@ const api = {
       ipcRenderer.invoke('image:updateNull', id, isNull),
     autoSplit: (ratios: unknown) => ipcRenderer.invoke('image:autoSplit', ratios),
     delete: (ids: string[]) => ipcRenderer.invoke('image:delete', ids),
+    setExcluded: (ids: string[], excluded: boolean) => ipcRenderer.invoke('image:setExcluded', ids, excluded),
+    setStatusBatch: (ids: string[], status: string) => ipcRenderer.invoke('image:setStatusBatch', ids, status),
+    setSplitBatch: (ids: string[], split: string) => ipcRenderer.invoke('image:setSplitBatch', ids, split),
     showOpenDialog: () => ipcRenderer.invoke('image:showOpenDialog'),
     showFolderDialog: () => ipcRenderer.invoke('image:showFolderDialog'),
   },
@@ -99,6 +102,7 @@ const api = {
 
   stats: {
     get: () => ipcRenderer.invoke('project:getStats'),
+    annotationTypesInUse: () => ipcRenderer.invoke('project:annotationTypesInUse'),
   },
 
   sidecar: {

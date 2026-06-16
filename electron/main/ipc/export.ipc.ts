@@ -4,7 +4,7 @@ import { exportToYOLO } from '../services/export/yolo.exporter'
 import { exportToCOCO } from '../services/export/coco.exporter'
 import { exportToVOC } from '../services/export/voc.exporter'
 import { exportToCSV } from '../services/export/csv.exporter'
-import { getDatasetStats } from '../services/stats.service'
+import { getDatasetStats, getAnnotationTypesInUse } from '../services/stats.service'
 import { sidecarService } from '../services/sidecar.service'
 import type { YOLOExportOptions, COCOExportOptions, VOCExportOptions, CSVExportOptions } from '../db/schema'
 
@@ -84,6 +84,12 @@ export function registerExportIpc(): void {
 
   ipcMain.handle('project:getStats', async () => {
     return getDatasetStats()
+  })
+
+  // Distinct annotation types in the (non-excluded) dataset — used by the export
+  // dialog to disable formats that can't represent the user's data.
+  ipcMain.handle('project:annotationTypesInUse', async () => {
+    return getAnnotationTypesInUse()
   })
 
   ipcMain.handle('sidecar:getStatus', async () => {

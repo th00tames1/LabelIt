@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { exportApi, type ExportResult } from '../api/ipc'
-import type { SplitType } from '../types'
+import { useState, useEffect } from 'react'
+import { exportApi, statsApi, type ExportResult } from '../api/ipc'
+import type { SplitType, AnnotationType } from '../types'
 import { useI18n } from '../i18n'
 
 interface Props {
@@ -8,6 +8,16 @@ interface Props {
 }
 
 type Format = 'yolo' | 'coco' | 'voc' | 'csv'
+
+// Which annotation types each export format can actually represent. Formats that
+// can't represent a type present in the project are disabled so the user can't
+// pick a format that would silently drop their data (req #20).
+const FORMAT_SUPPORT: Record<Format, Set<AnnotationType>> = {
+  yolo: new Set<AnnotationType>(['bbox', 'polygon']),
+  coco: new Set<AnnotationType>(['bbox', 'polygon', 'mask']),
+  voc: new Set<AnnotationType>(['bbox', 'polygon']),
+  csv: new Set<AnnotationType>(['bbox', 'polygon', 'polyline', 'keypoints', 'mask']),
+}
 
 export default function ExportDialog({ onClose }: Props) {
   const { language, t, splitLabel } = useI18n()
@@ -18,6 +28,30 @@ export default function ExportDialog({ onClose }: Props) {
   const [isExporting, setIsExporting] = useState(false)
   const [result, setResult] = useState<ExportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [typesInUse, setTypesInUse] = useState<AnnotationType[]>([])
+
+  // Load the annotation types present in the (non-excluded) dataset so we can
+  // disable export formats that can't represent them.
+  useEffect(() => {
+    statsApi.annotationTypesInUse()
+      .then((types) => setTypesInUse(types as AnnotationType[]))
+      .catch(() => setTypesInUse([]))
+  }, [])
+
+  const unsupportedTypesFor = (fmt: Format): AnnotationType[] =>
+    typesInUse.filter((ty) => !FORMAT_SUPPORT[fmt].has(ty))
+  const isFormatDisabled = (fmt: Format): boolean => unsupportedTypesFor(fmt).length > 0
+
+  // If the dataset's annotation types make the selected format unusable, switch
+  // to the first format that can represent everything (CSV always can).
+  useEffect(() => {
+    if (typesInUse.length === 0) return
+    if (isFormatDisabled(format)) {
+      const fallback = (['yolo', 'coco', 'voc', 'csv'] as Format[]).find((f) => !isFormatDisabled(f)) ?? 'csv'
+      setFormat(fallback)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typesInUse])
 
   const formatOptions: { value: Format; label: string; desc: string }[] = language === 'ko'
     ? [
@@ -144,23 +178,35 @@ export default function ExportDialog({ onClose }: Props) {
               {text.format}
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {formatOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setFormat(opt.value)}
-                  style={{
-                    padding: '10px 12px', borderRadius: 7, textAlign: 'left',
-                    border: `1px solid ${format === opt.value ? 'var(--accent)' : 'var(--border)'}`,
-                    background: format === opt.value ? 'rgba(var(--accent-rgb),0.12)' : 'var(--bg-tertiary)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 600, color: format === opt.value ? 'var(--accent)' : 'var(--text-primary)' }}>
-                    {opt.label}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{opt.desc}</div>
-                </button>
-              ))}
+              {formatOptions.map((opt) => {
+                const disabled = isFormatDisabled(opt.value)
+                const unsupported = disabled ? unsupportedTypesFor(opt.value).join(', ') : ''
+                const incompatibleText = language === 'ko'
+                  ? `${unsupported} 형식을 지원하지 않습니다`
+                  : `Doesn't support: ${unsupported}`
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => { if (!disabled) setFormat(opt.value) }}
+                    disabled={disabled}
+                    title={disabled ? incompatibleText : opt.desc}
+                    style={{
+                      padding: '10px 12px', borderRadius: 7, textAlign: 'left',
+                      border: `1px solid ${format === opt.value ? 'var(--accent)' : 'var(--border)'}`,
+                      background: format === opt.value ? 'rgba(var(--accent-rgb),0.12)' : 'var(--bg-tertiary)',
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      opacity: disabled ? 0.4 : 1,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 600, color: format === opt.value ? 'var(--accent)' : 'var(--text-primary)' }}>
+                      {opt.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {disabled ? incompatibleText : opt.desc}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </div>
 

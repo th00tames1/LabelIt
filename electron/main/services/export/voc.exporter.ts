@@ -9,7 +9,7 @@ import type { VOCExportOptions, ExportResult } from '../../db/schema'
 export async function exportToVOC(options: VOCExportOptions): Promise<ExportResult> {
   const { output_dir, include_images, split } = options
   const labels = listLabels()
-  const images = listImages(split && split !== 'unassigned' ? { split } : undefined)
+  const images = listImages(split && split !== 'unassigned' ? { split, exclude_excluded: true } : { exclude_excluded: true })
 
   const annotationsDir = join(output_dir, 'Annotations')
   const imagesDir = join(output_dir, 'JPEGImages')

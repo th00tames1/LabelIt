@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import AutoSplitDialog from '../../components/AutoSplitDialog'
-import { exportApi, finishApi, imageApi, projectApi } from '../../api/ipc'
+import { exportApi, finishApi, imageApi, projectApi, statsApi } from '../../api/ipc'
 import { useProjectStore } from '../../store/projectStore'
 import { useI18n } from '../../i18n'
 import { toLocalFileUrl } from '../../utils/paths'
 import type {
+  AnnotationType,
   AugmentationRecipe,
   ContrastAdjustMode,
   DatasetVersion,
@@ -17,6 +18,15 @@ import type {
   SplitType,
   VersionExportBatchResult,
 } from '../../types'
+
+// Annotation types each export format can represent — formats that can't
+// represent a present type are disabled (req #20).
+const FORMAT_SUPPORT: Record<ExportFormat, Set<AnnotationType>> = {
+  yolo: new Set<AnnotationType>(['bbox', 'polygon']),
+  coco: new Set<AnnotationType>(['bbox', 'polygon', 'mask']),
+  voc: new Set<AnnotationType>(['bbox', 'polygon']),
+  csv: new Set<AnnotationType>(['bbox', 'polygon', 'polyline', 'keypoints', 'mask']),
+}
 
 interface Props {
   onBackToAnnotate: () => void
@@ -141,6 +151,28 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
   const [exportError, setExportError] = useState<string | null>(null)
   const [showAutoSplitForExport, setShowAutoSplitForExport] = useState(false)
   const [rerunExportAfterSplit, setRerunExportAfterSplit] = useState(false)
+  const [typesInUse, setTypesInUse] = useState<AnnotationType[]>([])
+
+  useEffect(() => {
+    statsApi.annotationTypesInUse()
+      .then((types) => setTypesInUse(types as AnnotationType[]))
+      .catch(() => setTypesInUse([]))
+  }, [])
+
+  const unsupportedTypesFor = useCallback((fmt: ExportFormat): AnnotationType[] =>
+    typesInUse.filter((ty) => !FORMAT_SUPPORT[fmt].has(ty)), [typesInUse])
+  const isFormatDisabled = useCallback((fmt: ExportFormat): boolean =>
+    unsupportedTypesFor(fmt).length > 0, [unsupportedTypesFor])
+
+  // Auto-switch off a now-disabled format.
+  useEffect(() => {
+    if (typesInUse.length === 0) return
+    if (isFormatDisabled(exportFormat)) {
+      const fallback = (['yolo', 'coco', 'voc', 'csv'] as ExportFormat[]).find((f) => !isFormatDisabled(f)) ?? 'csv'
+      setExportFormat(fallback)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typesInUse])
 
   const text = language === 'ko'
       ? {
@@ -960,11 +992,25 @@ export default function FinishPage({ onBackToAnnotate, onOpenImage }: Props) {
               <div style={{ marginTop: 16 }}>
                 <div style={fieldLabelStyle}>{language === 'ko' ? '형식' : 'FORMAT'}</div>
                 <div style={formatGridStyle}>
-                  {(['yolo', 'coco', 'voc', 'csv'] as ExportFormat[]).map((format) => (
-                    <button key={format} onClick={() => setExportFormat(format)} style={{ ...formatButtonStyle, ...(exportFormat === format ? activeFormatButtonStyle : {}) }}>
-                      {format.toUpperCase()}
-                    </button>
-                  ))}
+                  {(['yolo', 'coco', 'voc', 'csv'] as ExportFormat[]).map((format) => {
+                    const disabled = isFormatDisabled(format)
+                    const unsupported = disabled ? unsupportedTypesFor(format).join(', ') : ''
+                    return (
+                      <button
+                        key={format}
+                        onClick={() => { if (!disabled) setExportFormat(format) }}
+                        disabled={disabled}
+                        title={disabled ? (language === 'ko' ? `${unsupported} 형식을 지원하지 않습니다` : `Doesn't support: ${unsupported}`) : undefined}
+                        style={{
+                          ...formatButtonStyle,
+                          ...(exportFormat === format ? activeFormatButtonStyle : {}),
+                          ...(disabled ? { opacity: 0.4, cursor: 'not-allowed' } : {}),
+                        }}
+                      >
+                        {format.toUpperCase()}
+                      </button>
+                    )
+                  })}
                 </div>
                 <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                   {text.formatDescriptions[exportFormat]}

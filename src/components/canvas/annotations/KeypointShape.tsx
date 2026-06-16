@@ -5,6 +5,7 @@ interface Props {
   annotation: Annotation
   color: string
   isSelected: boolean
+  movable?: boolean   // draggable (true only in select mode)
   imgX: number; imgY: number; imgW: number; imgH: number
   showLabelText?: boolean
   onSelect: () => void
@@ -16,7 +17,7 @@ interface Props {
 const VISIBILITY_COLORS = ['transparent', '#ffaa00', '#ffffff']
 
 export default function KeypointShape({
-  annotation, color, isSelected,
+  annotation, color, isSelected, movable = true,
   imgX, imgY, imgW, imgH,
   onSelect, onSelectAtPointer, onUpdateGeometry, defaultCursor,
 }: Props) {
@@ -57,7 +58,7 @@ export default function KeypointShape({
             fill={VISIBILITY_COLORS[kp.visibility]}
             stroke={color}
             strokeWidth={isSelected ? 2 : 1.5}
-            draggable
+            draggable={movable}
             onDragStart={(e) => { onSelect(); setCursor(e.target, 'grabbing') }}
             onDragEnd={(e) => { handleKpDragEnd(i, e.target.x(), e.target.y()); setCursor(e.target, 'pointer') }}
             onClick={(e) => { e.cancelBubble = true; (onSelectAtPointer ?? onSelect)() }}

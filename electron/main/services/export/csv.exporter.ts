@@ -10,7 +10,7 @@ export async function exportToCSV(options: CSVExportOptions): Promise<ExportResu
   mkdirSync(dirname(output_path), { recursive: true })
 
   const labels = listLabels()
-  const images = listImages(split && split !== 'unassigned' ? { split } : undefined)
+  const images = listImages(split && split !== 'unassigned' ? { split, exclude_excluded: true } : { exclude_excluded: true })
 
   const rows: string[] = [
     // Header

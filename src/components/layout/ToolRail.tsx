@@ -8,6 +8,12 @@ import type { ToolType } from '../../types'
 
 const TOOL_SIZE = 44
 
+interface Props {
+  // Excludes the active image from the dataset and advances to a neighbor.
+  // Owned by AnnotatePage because it needs navigation + annotation reload.
+  onExcludeActiveImage?: () => void
+}
+
 function Icon({ tool, active }: { tool: ToolType; active: boolean }) {
   const stroke = active ? 'white' : 'currentColor'
 
@@ -80,7 +86,20 @@ function Icon({ tool, active }: { tool: ToolType; active: boolean }) {
   )
 }
 
-export default function ToolRail() {
+// Trash icon for the "exclude from project" action — rendered in red to mark it
+// as a destructive-ish action (distinct from the neutral tool buttons).
+function ExcludeIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M3 4.5H15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7 4.5V3.2C7 2.8 7.3 2.5 7.7 2.5H10.3C10.7 2.5 11 2.8 11 3.2V4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M4.5 4.5L5.2 14.2C5.25 14.9 5.8 15.5 6.5 15.5H11.5C12.2 15.5 12.75 14.9 12.8 14.2L13.5 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7.5 7.5V12.5M10.5 7.5V12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export default function ToolRail({ onExcludeActiveImage }: Props) {
   const activeTool = useUIStore((s) => s.activeTool)
   const setActiveTool = useUIStore((s) => s.setActiveTool)
   const sidecarOnline = useUIStore((s) => s.sidecarOnline)
@@ -95,16 +114,21 @@ export default function ToolRail() {
 
   const activeImage = images.find((image) => image.id === activeImageId) ?? null
 
+  // Order: Select, BBox, Polygon, Smart Polygon, Polyline, Keypoint, No-Objects.
+  // (Smart Polygon and Polyline swapped per request.)
   const items: { tool: ToolType; label: string; shortcut: string }[] = [
     { tool: 'select', label: t('topbar.selectTool'), shortcut: 'V' },
     { tool: 'bbox', label: t('topbar.bboxTool'), shortcut: 'W' },
     { tool: 'polygon', label: t('topbar.polygonTool'), shortcut: 'E' },
-    { tool: 'polyline', label: t('topbar.polylineTool'), shortcut: 'L' },
     { tool: 'sam', label: t('topbar.smartPolygonTool'), shortcut: 'S' },
+    { tool: 'polyline', label: t('topbar.polylineTool'), shortcut: 'L' },
     { tool: 'keypoint', label: t('topbar.keypointTool'), shortcut: 'K' },
     { tool: 'null', label: t('topbar.nullTool'), shortcut: '-' },
   ]
 
+  // Toggle the active image's "no objects" (null) flag. This is an action on the
+  // image, NOT a persistent tool — it does not change the active drawing tool, so
+  // the user keeps whatever tool they had as they move to the next image.
   const handleNullToggle = async () => {
     if (!activeImage) return
 
@@ -112,7 +136,6 @@ export default function ToolRail() {
       await imageApi.updateNull(activeImage.id, false)
       const refreshed = await imageApi.get(activeImage.id)
       if (refreshed) updateImageInList(refreshed)
-      setActiveTool('select')
       return
     }
 
@@ -125,12 +148,13 @@ export default function ToolRail() {
     await imageApi.updateNull(activeImage.id, true)
     const refreshed = await imageApi.get(activeImage.id)
     if (refreshed) updateImageInList(refreshed)
-    setActiveTool('null')
   }
 
   return (
     <div
       style={{
+        // Floating tool rail on the right edge of the canvas. `fitImage` reserves
+        // space so the fitted image doesn't sit under it; zooming in may overlap.
         position: 'absolute',
         right: 16,
         top: '50%',
@@ -138,6 +162,7 @@ export default function ToolRail() {
         zIndex: 6,
         display: 'flex',
         flexDirection: 'column',
+        alignItems: 'center',
         gap: 8,
         padding: 8,
         borderRadius: 16,
@@ -145,14 +170,20 @@ export default function ToolRail() {
         border: '1px solid var(--border)',
         boxShadow: 'var(--shadow-lg)',
         backdropFilter: 'blur(10px)',
+        maxHeight: 'calc(100% - 32px)',
+        overflowY: 'auto',
       }}
       title={t('topbar.toolRail')}
     >
       {items.map((item) => {
-        const active = item.tool === 'null' ? Boolean(activeImage?.is_null) : activeTool === item.tool
+        const active = item.tool === 'null'
+          ? (Boolean(activeImage?.is_null) || activeTool === 'null')
+          : activeTool === item.tool
+        // Tools require at least one class (except select/no-objects). SAM also
+        // needs the sidecar. The No-Objects flag NO LONGER disables other tools —
+        // clicking them simply clears it.
         const disabled = (item.tool !== 'select' && item.tool !== 'null' && labels.length === 0)
           || (item.tool === 'sam' && !sidecarOnline)
-          || (Boolean(activeImage?.is_null) && item.tool !== 'select' && item.tool !== 'null')
 
         return (
           <button
@@ -162,10 +193,12 @@ export default function ToolRail() {
                 handleNullToggle().catch(console.error)
                 return
               }
+              // Tool persists across images; drawing on a no-objects image clears
+              // its flag automatically (handled in AnnotatePage).
               setActiveTool(item.tool)
             }}
             disabled={disabled}
-            title={`${item.label} (${item.shortcut})`}
+            title={item.tool === 'null' ? `${item.label} — ${t('topbar.nullToolHint')}` : `${item.label} (${item.shortcut})`}
             style={{
               width: TOOL_SIZE,
               height: TOOL_SIZE,
@@ -174,16 +207,43 @@ export default function ToolRail() {
               justifyContent: 'center',
               borderRadius: 12,
               border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-              background: active ? 'var(--accent)' : 'var(--bg-secondary)',
+              background: active ? 'var(--accent)' : 'var(--bg-tertiary)',
               color: active ? 'white' : 'var(--text-secondary)',
               opacity: disabled ? 0.42 : 1,
               boxSizing: 'border-box',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              flexShrink: 0,
             }}
           >
             <Icon tool={item.tool} active={active} />
           </button>
         )
       })}
+
+      {/* Divider + destructive "exclude from project" action */}
+      <div style={{ width: 28, height: 1, background: 'var(--border)', margin: '2px 0', flexShrink: 0 }} />
+      <button
+        onClick={() => onExcludeActiveImage?.()}
+        disabled={!activeImage}
+        title={`${t('topbar.excludeTool')} — ${t('topbar.excludeToolHint')}`}
+        style={{
+          width: TOOL_SIZE,
+          height: TOOL_SIZE,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 12,
+          border: `1px solid ${activeImage?.is_excluded ? '#ef4444' : 'rgba(239,68,68,0.5)'}`,
+          background: activeImage?.is_excluded ? 'rgba(239,68,68,0.18)' : 'var(--bg-tertiary)',
+          color: '#ef4444',
+          opacity: activeImage ? 1 : 0.42,
+          boxSizing: 'border-box',
+          cursor: activeImage ? 'pointer' : 'not-allowed',
+          flexShrink: 0,
+        }}
+      >
+        <ExcludeIcon />
+      </button>
     </div>
   )
 }

@@ -79,6 +79,7 @@ export interface Image {
   height: number
   file_size: number
   is_null: boolean
+  is_excluded: boolean   // excluded from split/export/augmentation; labels preserved
   status: ImageStatus
   split: SplitType
   imported_at: number
@@ -146,6 +147,7 @@ export interface ImageFilter {
   split?: SplitType
   label_class_id?: string
   search?: string
+  exclude_excluded?: boolean   // when true, omit is_excluded=1 rows (used by export/split/augmentation)
 }
 
 export interface SplitRatios {

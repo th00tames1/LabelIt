@@ -2,8 +2,9 @@ import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../database'
 import type { Image, ImageFilter, ImageStatus, SplitType, SplitRatios } from '../schema'
 
-interface ImageRow extends Omit<Image, 'status' | 'split' | 'is_null'> {
+interface ImageRow extends Omit<Image, 'status' | 'split' | 'is_null' | 'is_excluded'> {
   is_null: number
+  is_excluded: number
   status: string
   split: string
 }
@@ -12,6 +13,7 @@ function rowToImage(row: ImageRow): Image {
   return {
     ...row,
     is_null: Boolean(row.is_null),
+    is_excluded: Boolean(row.is_excluded),
     status: row.status as ImageStatus,
     split: row.split as SplitType,
   }
@@ -27,6 +29,7 @@ export function listImages(filter?: ImageFilter): Image[] {
   if (filter?.status) { sql += ' AND i.status = ?'; params.push(filter.status) }
   if (filter?.split && filter.split !== 'unassigned') { sql += ' AND i.split = ?'; params.push(filter.split) }
   if (filter?.search) { sql += ' AND i.filename LIKE ?'; params.push(`%${filter.search}%`) }
+  if (filter?.exclude_excluded) { sql += ' AND i.is_excluded = 0' }
   if (filter?.label_class_id) {
     sql += ` AND i.id IN (
       SELECT DISTINCT image_id FROM annotations WHERE label_class_id = ?
@@ -45,7 +48,7 @@ export function getImage(id: string): Image | null {
   return row ? rowToImage(row) : null
 }
 
-export function createImage(data: Omit<Image, 'id' | 'status' | 'split' | 'imported_at' | 'sort_order'>): Image {
+export function createImage(data: Omit<Image, 'id' | 'status' | 'split' | 'imported_at' | 'sort_order' | 'is_excluded'>): Image {
   const db = getDatabase()
   const id = uuidv4()
   const now = Date.now()
@@ -72,6 +75,36 @@ export function updateImageStatus(id: string, status: ImageStatus): void {
 export function updateImageNull(id: string, isNull: boolean): void {
   getDatabase().prepare('UPDATE images SET is_null = ? WHERE id = ?').run(isNull ? 1 : 0, id)
   syncImageStatus(id)
+}
+
+// Exclude/include images from the project's dataset (split/export/augmentation).
+// The is_excluded flag is independent of status, so the underlying labeled/approved
+// state is preserved when an image is later re-included. Annotations are untouched.
+export function setImagesExcluded(ids: string[], excluded: boolean): number {
+  if (ids.length === 0) return 0
+  const db = getDatabase()
+  const placeholders = ids.map(() => '?').join(',')
+  const info = db.prepare(
+    `UPDATE images SET is_excluded = ? WHERE id IN (${placeholders})`
+  ).run(excluded ? 1 : 0, ...ids)
+  return info.changes
+}
+
+// Batch status / split assignment for multi-selected images.
+export function setImagesStatus(ids: string[], status: ImageStatus): number {
+  if (ids.length === 0) return 0
+  const db = getDatabase()
+  const placeholders = ids.map(() => '?').join(',')
+  const info = db.prepare(`UPDATE images SET status = ? WHERE id IN (${placeholders})`).run(status, ...ids)
+  return info.changes
+}
+
+export function setImagesSplit(ids: string[], split: SplitType): number {
+  if (ids.length === 0) return 0
+  const db = getDatabase()
+  const placeholders = ids.map(() => '?').join(',')
+  const info = db.prepare(`UPDATE images SET split = ? WHERE id IN (${placeholders})`).run(split, ...ids)
+  return info.changes
 }
 
 export function updateImageSplit(id: string, split: SplitType): void {
@@ -133,7 +166,8 @@ export function syncAllImageStatuses(): void {
 
 export function autoSplit(ratios: SplitRatios): void {
   const db = getDatabase()
-  const images = db.prepare('SELECT id FROM images ORDER BY sort_order ASC').all() as { id: string }[]
+  // Excluded images are not part of the dataset — never assign them a split.
+  const images = db.prepare('SELECT id FROM images WHERE is_excluded = 0 ORDER BY sort_order ASC').all() as { id: string }[]
   const total = images.length
   if (total === 0) return
 

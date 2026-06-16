@@ -5,6 +5,7 @@ interface Props {
   annotation: Annotation
   color: string
   isSelected: boolean
+  movable?: boolean   // accepted for prop-shape parity (mask has no drag handles)
   imgX: number; imgY: number; imgW: number; imgH: number
   labelName?: string
   showLabelText?: boolean

@@ -9,7 +9,7 @@ import { toLocalFileUrl } from '../../../utils/paths'
 
 const ITEM_HEIGHT = 76
 const SIDEBAR_WIDTH = 200
-type ViewStatus = ImageStatus | 'all'
+type ViewStatus = ImageStatus | 'all' | 'excluded'
 type ViewSplit = SplitType | 'all'
 
 interface Props {
@@ -17,6 +17,10 @@ interface Props {
   activeImageId: string | null
   onSelectImage: (id: string) => void
   onImportComplete: (images: Image[]) => Promise<void> | void
+  // Bumped by the parent (filename overlay click) to scroll the active image to
+  // the centre of the list on demand — we intentionally do NOT auto-scroll on
+  // every selection, which the user found disorienting.
+  scrollToActiveSignal?: number
 }
 
 interface ContextMenu {
@@ -28,7 +32,8 @@ interface ContextMenu {
 interface ItemData {
   images: Image[]
   activeImageId: string | null
-  onSelectImage: (id: string) => void
+  selectedIds: Set<string>
+  onItemClick: (id: string, e: React.MouseEvent) => void
   onContextMenu: (imageId: string, x: number, y: number) => void
 }
 
@@ -84,7 +89,8 @@ function ImageItem({
 }) {
   const image = data.images[index]
   const isActive = image.id === data.activeImageId
-  const { language, statusLabel } = useI18n()
+  const isSelected = data.selectedIds.has(image.id)
+  const { language, statusLabel, t } = useI18n()
 
   const statusColor: Record<string, string> = {
     unlabeled: 'var(--status-unlabeled)',
@@ -108,10 +114,14 @@ function ImageItem({
 
   const badge = splitBadge[image.split] ?? splitBadge.unassigned
 
+  // Active item shows the accent border; multi-selected (but not active) items
+  // show a softer accent ring. Excluded items are dimmed.
+  const borderColor = isActive ? 'var(--accent)' : isSelected ? 'rgba(var(--accent-rgb),0.55)' : 'transparent'
+
   return (
     <div
       style={{ ...style, padding: '4px 6px', cursor: 'pointer' }}
-      onClick={() => data.onSelectImage(image.id)}
+      onClick={(e) => data.onItemClick(image.id, e)}
       onContextMenu={handleContextMenu}
     >
       <div style={{
@@ -120,9 +130,10 @@ function ImageItem({
         gap: 8,
         padding: '6px 8px',
         borderRadius: 6,
-        background: isActive ? 'var(--bg-hover)' : 'transparent',
-        border: `1px solid ${isActive ? 'var(--accent)' : 'transparent'}`,
+        background: isActive ? 'var(--bg-hover)' : isSelected ? 'rgba(var(--accent-rgb),0.10)' : 'transparent',
+        border: `1px solid ${borderColor}`,
         height: ITEM_HEIGHT - 8,
+        opacity: image.is_excluded ? 0.5 : 1,
       }}>
         {/* Thumbnail */}
         <div style={{
@@ -176,11 +187,20 @@ function ImageItem({
           </div>
           {/* Status + annotation count */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: statusColor[displayStatus] ?? '#555',
-            }} />
-            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{statusLabel(displayStatus as ImageStatus)}</span>
+            {image.is_excluded ? (
+              <>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
+                <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 700 }}>{t('sidebar.statusExcluded')}</span>
+              </>
+            ) : (
+              <>
+                <div style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: statusColor[displayStatus] ?? '#555',
+                }} />
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{statusLabel(displayStatus as ImageStatus)}</span>
+              </>
+            )}
             {image.annotation_count > 0 && (
               <span style={{
                 marginLeft: 'auto', fontSize: 9, fontWeight: 700,
@@ -209,9 +229,6 @@ function describeImportResult(
     return { tone: 'error', message: t('sidebar.importDoneFailed', { message: result.errors[0] }) }
   }
 
-  // Case A: no new images, but labels were attached to existing-but-unlabeled
-  // images. This is the "drop label files into an already-imported folder"
-  // workflow — surface it clearly so the user sees the relabel happened.
   if (result.imported === 0 && result.existing_images_relabeled > 0) {
     return {
       tone: 'success',
@@ -224,16 +241,11 @@ function describeImportResult(
     }
   }
 
-  // Case B: nothing new at all (all skipped, none relabeled).
   if (result.imported === 0) {
     if (result.skipped === 0) return null
     return { tone: 'warning', message: t('sidebar.importDoneNoneNew', { skipped: result.skipped }) }
   }
 
-  // Case C: new images were added (with or without auto-loaded labels).
-  // `images_with_annotations` already includes both new-with-labels and
-  // existing-relabeled, so subtract the existing-relabeled count to get the
-  // count of newly-imported images that got labels.
   const newImagesWithLabels = Math.max(0, result.images_with_annotations - result.existing_images_relabeled)
   const base = result.annotations_imported > 0
     ? t('sidebar.importDoneWithLabels', {
@@ -263,32 +275,45 @@ function describeImportResult(
   return { tone: 'success', message: base + relabelSuffix + dupSuffix }
 }
 
-export default function ImageBrowser({ images, activeImageId, onSelectImage, onImportComplete }: Props) {
+export default function ImageBrowser({ images, activeImageId, onSelectImage, onImportComplete, scrollToActiveSignal = 0 }: Props) {
   const updateImageInList = useImageStore((s) => s.updateImageInList)
   const setImporting = useUIStore((s) => s.setImporting)
   const isImporting = useUIStore((s) => s.isImporting)
   const { t, statusLabel, splitLabel, language } = useI18n()
   const dropRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<List>(null)
+  const listWrapRef = useRef<HTMLDivElement>(null)
+  const [listHeight, setListHeight] = useState(0)
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
   const [viewStatus, setViewStatus] = useState<ViewStatus>('all')
   const [viewSplit, setViewSplit] = useState<ViewSplit>('all')
-  // Inline import-result banner. Auto-dismisses 7s after the result lands so
-  // users can briefly verify what was added (incl. auto-loaded labels) without
-  // a modal interrupting their flow.
   const [importNotice, setImportNotice] = useState<{ tone: 'success' | 'warning' | 'error'; message: string } | null>(null)
+  // Multi-selection (Ctrl/Shift) for batch operations. `anchorId` is the pivot
+  // for shift-range selection.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const anchorIdRef = useRef<string | null>(null)
+  // Drag-over visual feedback.
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounter = useRef(0)
+
   useEffect(() => {
     if (!importNotice) return
     const timer = setTimeout(() => setImportNotice(null), 7000)
     return () => clearTimeout(timer)
   }, [importNotice])
-  // Drag-over visual feedback. The native HTML5 dragenter/leave events fire on
-  // every child node, so we keep a counter to know when the drag truly leaves
-  // the sidebar (counter back to 0).
-  const [isDragOver, setIsDragOver] = useState(false)
-  const dragCounter = useRef(0)
-  // Remove-image confirmation modal state. Holds the image being removed so
-  // the dialog can show its filename and annotation count.
-  const [pendingRemoval, setPendingRemoval] = useState<Image | null>(null)
+
+  // Measure the list viewport so react-window virtualizes against the real
+  // height from the very first render — fixes the "list not fully loaded until
+  // I scroll/resize" issue on large datasets (req #6).
+  useEffect(() => {
+    const el = listWrapRef.current
+    if (!el) return
+    const measure = () => setListHeight(el.clientHeight)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   // Close context menu on outside click
   useEffect(() => {
@@ -311,27 +336,117 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
     if (img) updateImageInList(img)
   }, [updateImageInList])
 
+  const filteredImages = images.filter((image) => {
+    let matchesStatus: boolean
+    if (viewStatus === 'all') {
+      matchesStatus = true
+    } else if (viewStatus === 'excluded') {
+      matchesStatus = image.is_excluded
+    } else {
+      // Keep the image currently being worked on visible in the "unlabeled" view
+      // even after its first label lands, so multi-object images don't vanish
+      // mid-edit (req #5).
+      matchesStatus = image.status === viewStatus
+        || (viewStatus === 'labeled' && image.status === 'in_progress')
+        || (viewStatus === 'unlabeled' && image.id === activeImageId)
+    }
+    const matchesSplit = viewSplit === 'all' || image.split === viewSplit
+    return matchesStatus && matchesSplit
+  })
+
+  // Scroll the active image to the centre ONLY when explicitly requested (the
+  // user clicks the filename overlay). Auto-scrolling on every click was
+  // disorienting, so it was removed (req #2).
+  useEffect(() => {
+    if (scrollToActiveSignal === 0 || !activeImageId) return
+    const idx = filteredImages.findIndex((image) => image.id === activeImageId)
+    if (idx >= 0) listRef.current?.scrollToItem(idx, 'center')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToActiveSignal])
+
+  // Click handler with Ctrl (toggle) / Shift (range) multi-selection (req #18).
+  const handleItemClick = useCallback((id: string, e: React.MouseEvent) => {
+    if (e.shiftKey && anchorIdRef.current) {
+      const anchorIdx = filteredImages.findIndex((img) => img.id === anchorIdRef.current)
+      const targetIdx = filteredImages.findIndex((img) => img.id === id)
+      if (anchorIdx >= 0 && targetIdx >= 0) {
+        const [lo, hi] = anchorIdx < targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx]
+        const range = filteredImages.slice(lo, hi + 1).map((img) => img.id)
+        setSelectedIds(new Set(range))
+        return
+      }
+    }
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+      anchorIdRef.current = id
+      return
+    }
+    // Plain click: clear multi-selection and open the image for editing.
+    setSelectedIds(new Set())
+    anchorIdRef.current = id
+    onSelectImage(id)
+  }, [filteredImages, onSelectImage])
+
   const handleUpdateStatus = useCallback(async (imageId: string, status: ImageStatus) => {
     await imageApi.updateStatus(imageId, status)
     await syncImage(imageId)
   }, [syncImage])
 
+  // Apply a status to the right-clicked image, or to the whole multi-selection
+  // if the right-clicked image is part of it.
+  const targetIdsFor = useCallback((imageId: string): string[] => {
+    return selectedIds.size > 1 && selectedIds.has(imageId) ? Array.from(selectedIds) : [imageId]
+  }, [selectedIds])
+
   const handleSetStatus = async (status: ImageStatus) => {
     if (!contextMenu) return
-    await handleUpdateStatus(contextMenu.imageId, status)
+    const ids = targetIdsFor(contextMenu.imageId)
+    if (ids.length > 1) {
+      await imageApi.setStatusBatch(ids, status)
+    } else {
+      await imageApi.updateStatus(ids[0], status)
+    }
+    const updated = await imageApi.list()
+    await onImportComplete(updated)
     setContextMenu(null)
   }
-
-  const handleUpdateSplit = useCallback(async (imageId: string, split: SplitType) => {
-    await imageApi.updateSplit(imageId, split)
-    await syncImage(imageId)
-  }, [syncImage])
 
   const handleSetSplit = async (split: SplitType) => {
     if (!contextMenu) return
-    await handleUpdateSplit(contextMenu.imageId, split)
+    const ids = targetIdsFor(contextMenu.imageId)
+    if (ids.length > 1) {
+      await imageApi.setSplitBatch(ids, split)
+    } else {
+      await imageApi.updateSplit(ids[0], split)
+    }
+    const updated = await imageApi.list()
+    await onImportComplete(updated)
     setContextMenu(null)
   }
+
+  // Exclude / include images from the dataset (reversible, non-destructive).
+  const applyExcluded = useCallback(async (ids: string[], excluded: boolean) => {
+    if (ids.length === 0) return
+    try {
+      await imageApi.setExcluded(ids, excluded)
+      const updated = await imageApi.list()
+      await onImportComplete(updated)
+      setImportNotice({
+        tone: 'success',
+        message: excluded
+          ? t('sidebar.excludeDone', { count: ids.length, suffix: ids.length === 1 ? '' : 's' })
+          : t('sidebar.includeDone', { count: ids.length, suffix: ids.length === 1 ? '' : 's' }),
+      })
+    } catch (error) {
+      console.error(error)
+      setImportNotice({ tone: 'error', message: t('sidebar.excludeFailed', { message: (error as Error).message }) })
+    }
+  }, [onImportComplete, t])
 
   const handleImportFiles = useCallback(async () => {
     try {
@@ -367,12 +482,7 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
     }
   }, [setImporting, onImportComplete, t])
 
-  // Drag-and-drop: accepts (a) loose image files, (b) a whole folder dragged
-  // from the OS file manager, or (c) a mix.  For each dropped entry we look at
-  // `webkitGetAsEntry()` — if it's a directory we forward to importFolder so
-  // the YOLO/COCO/VOC label sidecars get auto-loaded; if it's a file we batch
-  // it for importImages.  Counter-based drag-over tracking gives smooth visual
-  // feedback even as the cursor crosses child elements.
+  // Drag-and-drop: accepts loose image files, a whole folder, or a mix.
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     dragCounter.current += 1
@@ -393,15 +503,11 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
     dragCounter.current = 0
     setIsDragOver(false)
     try {
-      // Separate directories from loose files BEFORE iterating `dataTransfer.files`,
-      // because webkitGetAsEntry() must be called synchronously on the items.
       const items = Array.from(e.dataTransfer.items ?? [])
       const fileEntries = Array.from(e.dataTransfer.files ?? []) as Array<File & { path: string }>
       const folderPaths: string[] = []
       const loosePaths: string[] = []
 
-      // The `path` property on the File object is an Electron extension giving
-      // the absolute path on disk — exactly what the main process needs.
       items.forEach((item, idx) => {
         const entry = (item as { webkitGetAsEntry?: () => { isDirectory?: boolean } | null }).webkitGetAsEntry?.()
         const file = fileEntries[idx]
@@ -410,7 +516,6 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
         else if (/\.(jpg|jpeg|png|bmp|webp|tiff|tif)$/i.test(file.name)) loosePaths.push(file.path)
       })
 
-      // Fallback: some browsers/Electron versions don't populate items
       if (folderPaths.length === 0 && loosePaths.length === 0) {
         for (const f of fileEntries) {
           if (f.path && /\.(jpg|jpeg|png|bmp|webp|tiff|tif)$/i.test(f.name)) loosePaths.push(f.path)
@@ -420,7 +525,6 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
       if (folderPaths.length === 0 && loosePaths.length === 0) return
       setImporting(true)
 
-      // Aggregate results across multiple drops (e.g. one folder + a few loose files)
       const aggregate: ImportResult = {
         imported: 0, skipped: 0, annotations_imported: 0,
         images_with_annotations: 0, existing_images_relabeled: 0, errors: [],
@@ -448,39 +552,16 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
     }
   }, [setImporting, onImportComplete, t])
 
-  // Remove image from project (with confirmation).  Source file on disk is
-  // never touched — only the DB record + its annotations + the thumbnail.
-  const requestRemoveImage = useCallback((imageId: string) => {
-    const img = images.find((i) => i.id === imageId)
-    if (img) setPendingRemoval(img)
-  }, [images])
-
-  const confirmRemoveImage = useCallback(async () => {
-    if (!pendingRemoval) return
-    const target = pendingRemoval
-    setPendingRemoval(null)
-    try {
-      await imageApi.delete([target.id])
-      const updated = await imageApi.list()
-      await onImportComplete(updated)
-      setImportNotice({
-        tone: 'success',
-        message: t('sidebar.removeDoneOne', { filename: target.filename }),
-      })
-    } catch (error) {
-      console.error(error)
-      setImportNotice({
-        tone: 'error',
-        message: t('sidebar.removeDoneFailed', { message: (error as Error).message }),
-      })
-    }
-  }, [pendingRemoval, onImportComplete, t])
-
-  const filteredImages = images.filter((image) => {
-    const matchesStatus = viewStatus === 'all' || image.status === viewStatus || (viewStatus === 'labeled' && image.status === 'in_progress')
-    const matchesSplit = viewSplit === 'all' || image.split === viewSplit
-    return matchesStatus && matchesSplit
-  })
+  // Drop selections that fall outside the current filtered view.
+  useEffect(() => {
+    if (selectedIds.size === 0) return
+    const visible = new Set(filteredImages.map((img) => img.id))
+    let changed = false
+    const next = new Set<string>()
+    selectedIds.forEach((id) => { if (visible.has(id)) next.add(id); else changed = true })
+    if (changed) setSelectedIds(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredImages.length, viewStatus, viewSplit])
 
   useEffect(() => {
     if (filteredImages.length === 0) return
@@ -489,10 +570,11 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
     }
   }, [filteredImages, activeImageId, onSelectImage])
 
-  const itemData: ItemData = { images: filteredImages, activeImageId, onSelectImage, onContextMenu: handleContextMenu }
+  const itemData: ItemData = { images: filteredImages, activeImageId, selectedIds, onItemClick: handleItemClick, onContextMenu: handleContextMenu }
 
   // Context menu: find current image to show current values
   const ctxImage = contextMenu ? images.find((i) => i.id === contextMenu.imageId) : null
+  const ctxIsBatch = contextMenu ? (selectedIds.size > 1 && selectedIds.has(contextMenu.imageId)) : false
 
   const menuItem = (
     label: string,
@@ -541,8 +623,6 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {/* Drop-zone overlay — appears while user drags files/folders over the
-          sidebar. Pointer-events: none so it doesn't interfere with the drop. */}
       {isDragOver && (
         <div style={{
           position: 'absolute', inset: 4, zIndex: 5000,
@@ -652,6 +732,9 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
                     {statusLabel(option.value)}
                   </option>
                 ))}
+                <option value="excluded" style={{ background: '#ffffff', color: '#111111' }}>
+                  {t('sidebar.statusExcluded')}
+                </option>
               </select>
               <span style={selectArrowStyle}>▾</span>
             </div>
@@ -686,29 +769,74 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
         </div>
       </div>
 
-      {/* Image list */}
-      {filteredImages.length > 0 ? (
-        <List
-          height={window.innerHeight - 100}
-          itemCount={filteredImages.length}
-          itemSize={ITEM_HEIGHT}
-          width={SIDEBAR_WIDTH}
-          itemData={itemData}
-          style={{ flex: 1 }}
-        >
-          {ImageItem}
-        </List>
-      ) : (
+      {/* Batch action bar — shown when 2+ images are multi-selected (req #18) */}
+      {selectedIds.size > 1 && (
         <div style={{
-          flex: 1, display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          padding: 16, textAlign: 'center',
+          padding: '6px 10px',
+          borderBottom: '1px solid var(--border)',
+          background: 'rgba(var(--accent-rgb),0.10)',
+          display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
         }}>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.5 }}>
-            {images.length === 0 ? t('sidebar.dropHint') : t('sidebar.noImagesInView')}
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>
+            {t('sidebar.selectedCount', { count: selectedIds.size })}
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            <button
+              onClick={() => applyExcluded(Array.from(selectedIds), true)}
+              style={{
+                fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                border: '1px solid rgba(239,68,68,0.5)', background: 'transparent', color: '#ef4444', cursor: 'pointer',
+              }}
+            >
+              {t('sidebar.batchExclude')}
+            </button>
+            <button
+              onClick={() => applyExcluded(Array.from(selectedIds), false)}
+              style={{
+                fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
+              }}
+            >
+              {t('sidebar.batchInclude')}
+            </button>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              style={{
+                fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
+              }}
+            >
+              {t('sidebar.batchClear')}
+            </button>
           </div>
         </div>
       )}
+
+      {/* Image list */}
+      <div ref={listWrapRef} style={{ flex: 1, minHeight: 0 }}>
+        {filteredImages.length > 0 && listHeight > 0 ? (
+          <List
+            ref={listRef}
+            height={listHeight}
+            itemCount={filteredImages.length}
+            itemSize={ITEM_HEIGHT}
+            width={SIDEBAR_WIDTH}
+            itemData={itemData}
+          >
+            {ImageItem}
+          </List>
+        ) : (
+          <div style={{
+            height: '100%', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            padding: 16, textAlign: 'center',
+          }}>
+            <div style={{ color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.5 }}>
+              {images.length === 0 ? t('sidebar.dropHint') : t('sidebar.noImagesInView')}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Right-click context menu */}
       {contextMenu && ctxImage && (
@@ -727,91 +855,52 @@ export default function ImageBrowser({ images, activeImageId, onSelectImage, onI
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {ctxIsBatch && (
+            <div style={{ padding: '4px 10px 6px', fontSize: 10, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.04em' }}>
+              {t('sidebar.selectedCount', { count: selectedIds.size })}
+            </div>
+          )}
           <div style={{ padding: '4px 10px 6px', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
             {t('sidebar.contextStatus')}
           </div>
           {STATUS_OPTIONS.map((s) =>
-            menuItem(statusLabel(s.value), s.color, () => handleSetStatus(s.value), (ctxImage.status === 'in_progress' ? 'labeled' : ctxImage.status) === s.value)
+            menuItem(statusLabel(s.value), s.color, () => handleSetStatus(s.value), !ctxIsBatch && (ctxImage.status === 'in_progress' ? 'labeled' : ctxImage.status) === s.value)
           )}
           <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
           <div style={{ padding: '4px 10px 6px', fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
             {t('sidebar.contextSplit')}
           </div>
           {SPLIT_OPTIONS.map((s) =>
-            menuItem(splitLabel(s.value), s.color, () => handleSetSplit(s.value), ctxImage.split === s.value)
+            menuItem(splitLabel(s.value), s.color, () => handleSetSplit(s.value), !ctxIsBatch && ctxImage.split === s.value)
           )}
           <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-          <button
-            onClick={() => { requestRemoveImage(contextMenu.imageId); setContextMenu(null) }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              width: '100%', padding: '7px 10px',
-              background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
-              color: '#ef4444', fontWeight: 600, fontSize: 12,
-            }}
-          >
-            <span style={{ fontSize: 14, lineHeight: 1 }}>🗑</span>
-            {t('sidebar.contextRemove')}
-          </button>
-        </div>
-      )}
-
-      {/* Remove-image confirmation modal */}
-      {pendingRemoval && (
-        <div
-          onClick={() => setPendingRemoval(null)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 10000,
-            background: 'rgba(0,0,0,0.55)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: '20px 22px',
-              maxWidth: 420,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-            }}
-          >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>
-              {t('sidebar.removeConfirmTitle')}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 18 }}>
-              {pendingRemoval.annotation_count > 0
-                ? t('sidebar.removeConfirmBody', {
-                    filename: pendingRemoval.filename,
-                    annotations: pendingRemoval.annotation_count,
-                    annSuffix: pendingRemoval.annotation_count === 1 ? '' : 's',
-                  })
-                : t('sidebar.removeConfirmBodyNoAnn', { filename: pendingRemoval.filename })}
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setPendingRemoval(null)}
-                style={{
-                  padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                  background: 'var(--bg-tertiary)', color: 'var(--text-primary)',
-                  border: '1px solid var(--border)', cursor: 'pointer',
-                }}
-              >
-                {t('sidebar.removeConfirmCancel')}
-              </button>
-              <button
-                onClick={confirmRemoveImage}
-                autoFocus
-                style={{
-                  padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-                  background: '#dc2626', color: 'white', border: 'none', cursor: 'pointer',
-                }}
-              >
-                {t('sidebar.removeConfirmAction')}
-              </button>
-            </div>
-          </div>
+          {/* Exclude / Include (req #14). Operates on the multi-selection when the
+              right-clicked image is part of it, otherwise on the single image. */}
+          {(ctxIsBatch ? false : ctxImage.is_excluded) ? (
+            <button
+              onClick={() => { applyExcluded(targetIdsFor(contextMenu.imageId), false); setContextMenu(null) }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7, width: '100%', padding: '7px 10px',
+                background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
+                color: 'var(--text-secondary)', fontWeight: 600, fontSize: 12,
+              }}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }}>↩</span>
+              {t('sidebar.contextInclude')}
+            </button>
+          ) : (
+            <button
+              onClick={() => { applyExcluded(targetIdsFor(contextMenu.imageId), true); setContextMenu(null) }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7, width: '100%', padding: '7px 10px',
+                background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
+                color: '#ef4444', fontWeight: 600, fontSize: 12,
+              }}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }}>🚫</span>
+              {t('sidebar.contextExclude')}
+            </button>
+          )}
         </div>
       )}
     </div>

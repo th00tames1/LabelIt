@@ -152,9 +152,19 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
   const [bboxCurrent, setBboxCurrent] = useState<NormalizedPoint | null>(null)
   const [polygonPoints, setPolygonPoints] = useState<NormalizedPoint[]>([])
   const [mousePos, setMousePos] = useState<NormalizedPoint | null>(null)
+  const [pointerInside, setPointerInside] = useState(false)   // for crosshair guide
   const isPanning = useRef(false)
   const lastPointer = useRef({ x: 0, y: 0 })
   const previousToolRef = useRef<ToolType>(activeTool)
+  // Mirror bbox draw state into refs so a window-level mouseup (fired when the
+  // cursor is released outside the canvas) can still finalize the box.
+  const bboxStartRef = useRef<NormalizedPoint | null>(null)
+  const bboxCurrentRef = useRef<NormalizedPoint | null>(null)
+  // Right-button pan tracking: distinguishes a right-click (context action) from
+  // a right-drag (pan). `moved` is read by the contextmenu handler.
+  const rightPanRef = useRef({ active: false, moved: false })
+  // Mirrors the current tool cursor so event handlers can restore it after panning.
+  const cursorRef = useRef<string>('default')
 
   // Expose drawing state to parent for Ctrl+Z interception
   useImperativeHandle(ref, () => ({
@@ -289,16 +299,23 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
 
   const fitImage = (containerW: number, containerH: number) => {
     if (!imgW || !imgH) return
-    const margin = 40
-    const scaleX = (containerW - margin * 2) / imgW
-    const scaleY = (containerH - margin * 2) / imgH
+    // Reserve space for the floating overlays so a freshly-fitted image is never
+    // covered by them: tool rail on the right, zoom/name controls on top, and
+    // display-options / review buttons on the bottom. Zooming in afterwards may
+    // overlap — that's acceptable.
+    const LEFT_RESERVE = 40
+    const RIGHT_RESERVE = 84
+    const TOP_RESERVE = 60
+    const BOTTOM_RESERVE = 60
+    const availW = Math.max(1, containerW - LEFT_RESERVE - RIGHT_RESERVE)
+    const availH = Math.max(1, containerH - TOP_RESERVE - BOTTOM_RESERVE)
     // Always fit to canvas (no scale=1 ceiling) so image fills canvas proportionally
-    const newScale = Math.min(scaleX, scaleY)
+    const newScale = Math.min(availW / imgW, availH / imgH)
     const dW = imgW * newScale
     const dH = imgH * newScale
     setScale(newScale)
-    setImgX((containerW - dW) / 2)
-    setImgY((containerH - dH) / 2)
+    setImgX(LEFT_RESERVE + Math.max(0, (availW - dW) / 2))
+    setImgY(TOP_RESERVE + Math.max(0, (availH - dH) / 2))
   }
 
   // Displayed image dimensions in stage pixels (single scale application — no double scaling)
@@ -487,7 +504,27 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
     setImgY((y) => y + dy)
   }, [scale, applyScaleAt])
 
-  // ─── Pan: middle-mouse OR Alt+left-click ────────────────────────────────────
+  // Finalize the in-progress bbox from refs (so it works even when the mouseup
+  // happens off-canvas). Clears state first so a duplicate mouseup is a no-op.
+  const finalizeBbox = useCallback(async () => {
+    const start = bboxStartRef.current
+    const current = bboxCurrentRef.current
+    bboxStartRef.current = null
+    bboxCurrentRef.current = null
+    setBboxStart(null)
+    setBboxCurrent(null)
+    if (!start || !current) return
+    const x = Math.min(start.x, current.x)
+    const y = Math.min(start.y, current.y)
+    const w = Math.abs(current.x - start.x)
+    const h = Math.abs(current.y - start.y)
+    if (w > 0.005 && h > 0.005) {
+      const geometry: AnnotationGeometry = { type: 'bbox', x, y, width: w, height: h }
+      await createAndNotify(image.id, 'bbox', geometry, getActiveLabelId())
+    }
+  }, [createAndNotify, image.id, getActiveLabelId])
+
+  // ─── Pan: middle-mouse, Alt+left-click, OR right-drag ───────────────────────
   const handleStageMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     if (e.evt.button === 1 || (e.evt.button === 0 && e.evt.altKey)) {
       isPanning.current = true
@@ -495,12 +532,35 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
       return
     }
 
+    // Right button: grab + (potential) pan. We show the grab cursor immediately
+    // and treat it as a pan if the user drags; a stationary right-click still
+    // fires the contextmenu action (polygon undo / SAM negative point).
+    if (e.evt.button === 2) {
+      isPanning.current = true
+      rightPanRef.current = { active: true, moved: false }
+      lastPointer.current = { x: e.evt.clientX, y: e.evt.clientY }
+      e.target.getStage()?.container().style.setProperty('cursor', 'grabbing')
+      return
+    }
+
+    // If the press landed on a Transformer resize handle, let Konva drive the
+    // resize — don't also start a bbox draw underneath it.
+    const parentClassName = (e.target.getParent() as { className?: string } | null)?.className
+    if (parentClassName === 'Transformer') return
+
     const norm = getPointerNorm()
     if (!norm) return
 
     if (activeTool === 'bbox') {
+      // Start a box from anywhere (including over existing shapes) so the user can
+      // draw overlapping boxes. A click that doesn't drag creates nothing (see
+      // finalizeBbox); selecting an existing box is handled by its own onClick.
+      // Boxes are not draggable in bbox mode (see `movable`), so pressing on a box
+      // body begins a draw rather than a move — no stray tiny boxes.
       setBboxStart(norm)
       setBboxCurrent(norm)
+      bboxStartRef.current = norm
+      bboxCurrentRef.current = norm
     } else if (activeTool === 'select') {
       // Clicking on empty space deselects
       if ((e.target as unknown as Konva.Node) === e.target.getStage()) {
@@ -514,6 +574,9 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
       const dx = e.evt.clientX - lastPointer.current.x
       const dy = e.evt.clientY - lastPointer.current.y
       lastPointer.current = { x: e.evt.clientX, y: e.evt.clientY }
+      if (rightPanRef.current.active && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+        rightPanRef.current.moved = true
+      }
       setImgX((x) => x + dx)
       setImgY((y) => y + dy)
       return
@@ -522,28 +585,31 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
     const norm = getPointerNorm()
     if (!norm) return
     setMousePos(norm)
+    setPointerInside(true)
 
     if (activeTool === 'bbox' && bboxStart) {
       setBboxCurrent(norm)
+      bboxCurrentRef.current = norm
     }
   }, [activeTool, bboxStart, getPointerNorm])
 
-  const handleStageMouseUp = useCallback(async (_e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (isPanning.current) { isPanning.current = false; return }
-
-    if (activeTool === 'bbox' && bboxStart && bboxCurrent) {
-      const x = Math.min(bboxStart.x, bboxCurrent.x)
-      const y = Math.min(bboxStart.y, bboxCurrent.y)
-      const w = Math.abs(bboxCurrent.x - bboxStart.x)
-      const h = Math.abs(bboxCurrent.y - bboxStart.y)
-      if (w > 0.005 && h > 0.005) {
-        const geometry: AnnotationGeometry = { type: 'bbox', x, y, width: w, height: h }
-        await createAndNotify(image.id, 'bbox', geometry, getActiveLabelId())
+  const handleStageMouseUp = useCallback(async (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (isPanning.current) {
+      isPanning.current = false
+      if (rightPanRef.current.active) {
+        // Restore cursor after a right-button pan; `moved` stays set for the
+        // contextmenu handler that fires right after.
+        e.target.getStage()?.container().style.setProperty('cursor', cursorRef.current)
       }
-      setBboxStart(null)
-      setBboxCurrent(null)
+      return
     }
-  }, [activeTool, bboxStart, bboxCurrent, createAndNotify, image.id, getActiveLabelId])
+
+    if (activeTool === 'bbox' && bboxStartRef.current) {
+      // A real drag creates a box; a click (tiny w/h) creates nothing —
+      // selection of an existing box is handled by that box's own onClick.
+      await finalizeBbox()
+    }
+  }, [activeTool, finalizeBbox])
 
   // ─── Click: polygon vertex placement + keypoint placement ────────────────────
   const handleStageClick = useCallback(async (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -592,6 +658,11 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
   // Right-click: undo last vertex while drawing polygon/polyline, or SAM negative point
   const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     e.evt.preventDefault()
+
+    // If the right button was dragged (a pan), swallow the context action.
+    const wasPan = rightPanRef.current.moved
+    rightPanRef.current = { active: false, moved: false }
+    if (wasPan) return
 
     if (activeTool === 'polygon' || activeTool === 'polyline') {
       // Remove the last placed vertex (one-step undo)
@@ -736,6 +807,17 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
   }
 
   const visibleAnnotations = annotations.filter((ann) => (visibilityById[ann.id] ?? true) && isLabelVisible(ann.label_class_id))
+
+  // Render the selected annotation LAST so it (and its resize handles) paint on
+  // top of any overlapping shapes. Without this, an overlapping box can sit above
+  // the selected box's corner anchors and steal the click — making it impossible
+  // to grab a corner to resize.
+  const orderedAnnotations = selectedId == null
+    ? visibleAnnotations
+    : [
+        ...visibleAnnotations.filter((ann) => ann.id !== selectedId),
+        ...visibleAnnotations.filter((ann) => ann.id === selectedId),
+      ]
 
   const annotationContainsPoint = useCallback((annotationId: string, point: NormalizedPoint) => {
     const annotation = visibleAnnotations.find((ann) => ann.id === annotationId)
@@ -1117,11 +1199,37 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
       ? 'crosshair'
       : 'default'
 
+  // Crosshair guide: thin dashed lines from the cursor to the image-frame edges,
+  // shown for drawing tools so the user can see exactly where a point will land.
+  // Drawn with a light dash + low opacity so it never obscures the image.
+  const showCrosshair = pointerInside && mousePos != null && cursor === 'crosshair' && !isPanning.current
+  const crosshairX = mousePos ? imgX + mousePos.x * dispW : 0
+  const crosshairY = mousePos ? imgY + mousePos.y * dispH : 0
+
   useEffect(() => {
     const nextCursor = cursor
+    cursorRef.current = nextCursor
     stageRef.current?.container().style.setProperty('cursor', nextCursor)
     containerRef.current?.style.setProperty('cursor', nextCursor)
   }, [annotations.length, cursor, selectedId])
+
+  // Window-level mouseup so a bbox is completed even when the cursor is released
+  // outside the image/canvas (previously the box was silently dropped). Also
+  // ends any in-progress pan that ended off-canvas.
+  useEffect(() => {
+    const onWindowMouseUp = () => {
+      if (isPanning.current) {
+        isPanning.current = false
+        rightPanRef.current = { active: false, moved: false }
+        stageRef.current?.container().style.setProperty('cursor', cursorRef.current)
+      }
+      if (activeTool === 'bbox' && bboxStartRef.current) {
+        finalizeBbox().catch(console.error)
+      }
+    }
+    window.addEventListener('mouseup', onWindowMouseUp)
+    return () => window.removeEventListener('mouseup', onWindowMouseUp)
+  }, [activeTool, finalizeBbox])
 
   useEffect(() => {
     if (selectedId != null && !annotations.some((annotation) => annotation.id === selectedId)) {
@@ -1130,7 +1238,11 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
   }, [annotations, selectedId, setSelectedId])
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', cursor, position: 'relative' }}>
+    <div
+      ref={containerRef}
+      style={{ width: '100%', height: '100%', cursor, position: 'relative' }}
+      onMouseLeave={() => setPointerInside(false)}
+    >
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       <Stage
         ref={stageRef}
@@ -1175,9 +1287,14 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
           )}
         </Layer>
 
-        {/* Layer 2: Annotations — hidden when annotationsVisible is false (H key) */}
-        <Layer visible={annotationsVisible} listening={annotationsVisible}>
-          {visibleAnnotations.map((ann) => {
+        {/* Layer 2: Annotations — hidden when annotationsVisible is false (H key).
+            Listens in 'select' and 'bbox' modes: select needs full interaction;
+            bbox needs it so a selected box's corner handles can resize AND clicking
+            a box selects it — while bodies stay non-draggable (see `movable`) so a
+            drag still draws a new box even over existing shapes. Other drawing tools
+            (polygon/keypoint/sam) keep it off so their clicks reach the stage. */}
+        <Layer visible={annotationsVisible} listening={annotationsVisible && (activeTool === 'select' || activeTool === 'bbox')}>
+          {orderedAnnotations.map((ann) => {
             const color = getLabelColor(ann.label_class_id)
             const labelName = getLabelName(ann.label_class_id)
             const isSelected = ann.id === selectedId
@@ -1187,6 +1304,10 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
               labelName,
               showLabelText: !hideLabelText,
               isSelected,
+              // Shapes can be dragged/moved only in select mode. In bbox mode a
+              // selected box can still be resized via its corner handles, but its
+              // body is not draggable so dragging draws a new (overlapping) box.
+              movable: activeTool === 'select',
               imgX, imgY, imgW: dispW, imgH: dispH,
               onSelect: () => setSelectedId(ann.id),
               onSelectAtPointer: () => handleAnnotationSelectionAtPointer(ann.id),
@@ -1212,6 +1333,26 @@ function AnnotationCanvasInner({ image, activeTool, onAnnotationCreated, onSetup
 
         {/* Layer 3: Tool preview */}
         <Layer listening={activeTool === 'sam'}>
+          {showCrosshair && (
+            <>
+              <Line
+                points={[imgX, crosshairY, imgX + dispW, crosshairY]}
+                stroke="rgba(255,255,255,0.55)"
+                strokeWidth={1}
+                dash={[5, 4]}
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+              <Line
+                points={[crosshairX, imgY, crosshairX, imgY + dispH]}
+                stroke="rgba(255,255,255,0.55)"
+                strokeWidth={1}
+                dash={[5, 4]}
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+            </>
+          )}
           {activeTool === 'bbox' && bboxStart && bboxCurrent && (
             <BBoxPreview
               start={bboxStart} current={bboxCurrent}

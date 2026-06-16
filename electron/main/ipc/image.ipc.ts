@@ -1,6 +1,6 @@
 import { ipcMain, dialog } from 'electron'
 import { existsSync, unlinkSync } from 'fs'
-import { listImages, getImage, updateImageStatus, updateImageSplit, updateImageNull, autoSplit, deleteImages } from '../db/repositories/image.repo'
+import { listImages, getImage, updateImageStatus, updateImageSplit, updateImageNull, autoSplit, deleteImages, setImagesExcluded, setImagesStatus, setImagesSplit } from '../db/repositories/image.repo'
 import { importImages, importFolder } from '../services/import.service'
 import { getThumbnailDir, getCurrentProjectDir } from './project.ipc'
 import type { ImageFilter, ImageStatus, SplitType, SplitRatios } from '../db/schema'
@@ -38,6 +38,25 @@ export function registerImageIpc(): void {
 
   ipcMain.handle('image:autoSplit', async (_event, ratios: SplitRatios) => {
     autoSplit(ratios)
+  })
+
+  // Exclude/include images from the dataset (split/export/augmentation).
+  // Reversible and non-destructive — annotations are preserved.
+  ipcMain.handle('image:setExcluded', async (_event, ids: string[], excluded: boolean) => {
+    if (!Array.isArray(ids) || ids.length === 0) return { changed: 0 }
+    const changed = setImagesExcluded(ids, excluded)
+    return { changed }
+  })
+
+  // Batch status / split updates for multi-selected images.
+  ipcMain.handle('image:setStatusBatch', async (_event, ids: string[], status: ImageStatus) => {
+    if (!Array.isArray(ids) || ids.length === 0) return { changed: 0 }
+    return { changed: setImagesStatus(ids, status) }
+  })
+
+  ipcMain.handle('image:setSplitBatch', async (_event, ids: string[], split: SplitType) => {
+    if (!Array.isArray(ids) || ids.length === 0) return { changed: 0 }
+    return { changed: setImagesSplit(ids, split) }
   })
 
   // Remove images from the project.  Source image files on disk are NEVER

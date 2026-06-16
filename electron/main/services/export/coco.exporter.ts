@@ -10,7 +10,7 @@ export async function exportToCOCO(options: COCOExportOptions): Promise<ExportRe
   mkdirSync(output_dir, { recursive: true })
 
   const labels = listLabels()
-  const images = listImages(split && split !== 'unassigned' ? { split } : undefined)
+  const images = listImages(split && split !== 'unassigned' ? { split, exclude_excluded: true } : { exclude_excluded: true })
 
   const categories = labels.map((l, i) => ({
     id: i + 1,

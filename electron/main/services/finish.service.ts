@@ -167,7 +167,8 @@ export function deleteFinishVersion(id: string): void {
 }
 
 export function getFinishSummary(): FinishSummary {
-  const images = listImages()
+  // Excluded images are not part of the dataset — omit them from readiness stats.
+  const images = listImages({ exclude_excluded: true })
   const items = images.map(toFinishImageItem)
 
   const bySplit: FinishSplitSummary[] = SPLIT_ORDER.map((split) => {
@@ -322,7 +323,8 @@ function hasAnyRecipeEffect(recipe: AugmentationRecipe): boolean {
 }
 
 function buildResolvedSamples(version: DatasetVersion, split?: SplitType, imageScope: VersionExportRequest['image_scope'] = 'all'): ResolvedSample[] {
-  const images = listImages(split ? { split } : undefined)
+  // Excluded images never enter export or augmentation pipelines.
+  const images = listImages(split ? { split, exclude_excluded: true } : { exclude_excluded: true })
 
   return images.flatMap((image) => {
     const annotations = listForImage(image.id)
@@ -1217,7 +1219,15 @@ async function exportSamplesToCSV(
 }
 
 function createVersionOutputDir(baseOutputDir: string, version: DatasetVersion, format: string): string {
-  const dir = join(baseOutputDir, `${slugify(version.name)}-${version.id.slice(0, 8)}-${format}`)
+  const base = join(baseOutputDir, `${slugify(version.name)}-${version.id.slice(0, 8)}-${format}`)
+  // Never overwrite a previous export: if the target folder already exists,
+  // append " (1)", " (2)", … until we find a free name.
+  let dir = base
+  let suffix = 1
+  while (existsSync(dir)) {
+    dir = `${base} (${suffix})`
+    suffix += 1
+  }
   mkdirSync(dir, { recursive: true })
   return dir
 }

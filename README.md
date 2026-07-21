@@ -147,8 +147,8 @@ Download the installer for your platform from the
 | Windows 10/11 (x64) | `LabelIt-<version>-Setup.exe` | Standard installer |
 | macOS (Apple Silicon) | `LabelIt-<version>-mac-arm64.dmg` | M1 and newer |
 | macOS (Intel) | `LabelIt-<version>-mac-x64.dmg` | Intel based Macs |
-| Linux (x64) | `LabelIt-<version>-linux-x64.AppImage` | Portable, no installation |
-| Linux (x64) | `LabelIt-<version>-linux-x64.deb` | Debian and Ubuntu |
+| Linux (x64) | `LabelIt-<version>-linux-x86_64.AppImage` | Portable, no installation |
+| Linux (x64) | `LabelIt-<version>-linux-amd64.deb` | Debian and Ubuntu |
 
 ### Windows
 
@@ -168,14 +168,14 @@ and choose **Open**, then confirm. Alternatively, allow it under
 For the AppImage, mark it executable and run it:
 
 ```bash
-chmod +x LabelIt-*-linux-x64.AppImage
-./LabelIt-*-linux-x64.AppImage
+chmod +x LabelIt-*.AppImage
+./LabelIt-*.AppImage
 ```
 
 For the Debian package:
 
 ```bash
-sudo dpkg -i LabelIt-*-linux-x64.deb
+sudo dpkg -i LabelIt-*-linux-amd64.deb
 sudo apt-get install -f
 ```
 

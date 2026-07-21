@@ -125,7 +125,7 @@ jobs:
             | Windows 10/11 (x64) | `LabelIt-*-Setup.exe` |
             | macOS (Apple Silicon) | `LabelIt-*-mac-arm64.dmg` |
             | macOS (Intel) | `LabelIt-*-mac-x64.dmg` |
-            | Linux (x64) | `LabelIt-*-linux-x64.AppImage` or `.deb` |
+            | Linux (x64) | `LabelIt-*-linux-x86_64.AppImage` or `LabelIt-*-linux-amd64.deb` |
 
             macOS builds are not signed with an Apple Developer certificate. On
             first launch, right-click the app and choose Open, or allow it under

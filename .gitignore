@@ -14,3 +14,8 @@ python/__pycache__/
 python/**/__pycache__/
 python/**/*.pyc
 .thumbnails/
+
+# Ultralytics writes annotated debug frames here during inference.
+# These are throwaway outputs and can contain source imagery.
+runs/
+python/runs/

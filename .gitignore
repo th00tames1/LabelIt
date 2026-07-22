@@ -19,3 +19,6 @@ python/**/*.pyc
 # These are throwaway outputs and can contain source imagery.
 runs/
 python/runs/
+
+# TypeScript incremental build cache; regenerated on every build.
+*.tsbuildinfo

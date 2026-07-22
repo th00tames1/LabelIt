@@ -12,6 +12,7 @@
     "build:win": "node scripts/setup-codesign-cache.cjs && npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
+    "sync-readme": "node scripts/sync-readme-version.js",
     "generate-icon": "node scripts/generate-icon.js",
     "native:fix": "node scripts/ensure-native-deps.js",
     "postinstall": "electron-builder install-app-deps && npm run native:fix"

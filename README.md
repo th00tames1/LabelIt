@@ -139,16 +139,17 @@ annotating, so problems are caught before export rather than after training star
 
 ## Installation
 
-Download the installer for your platform from the
-[latest release](https://github.com/th00tames1/LabelIt/releases/latest).
+Current release: **v1.5.0**. All builds are 64 bit. Click a file to download it
+directly, or browse every version on the
+[releases page](https://github.com/th00tames1/LabelIt/releases).
 
-| Platform | File | Notes |
+| Platform | Download | Notes |
 | --- | --- | --- |
-| Windows 10/11 (x64) | `LabelIt-<version>-Setup.exe` | Standard installer |
-| macOS (Apple Silicon) | `LabelIt-<version>-mac-arm64.dmg` | M1 and newer |
-| macOS (Intel) | `LabelIt-<version>-mac-x64.dmg` | Intel based Macs |
-| Linux (x64) | `LabelIt-<version>-linux-x86_64.AppImage` | Portable, no installation |
-| Linux (x64) | `LabelIt-<version>-linux-amd64.deb` | Debian and Ubuntu |
+| Windows 10/11 | [LabelIt-1.5.0-Setup.exe](https://github.com/th00tames1/LabelIt/releases/download/v1.5.0/LabelIt-1.5.0-Setup.exe) | Standard installer |
+| macOS (Apple Silicon) | [LabelIt-1.5.0-mac-arm64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.0/LabelIt-1.5.0-mac-arm64.dmg) | M1 and newer |
+| macOS (Intel) | [LabelIt-1.5.0-mac-x64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.0/LabelIt-1.5.0-mac-x64.dmg) | Intel based Macs |
+| Linux (AppImage) | [LabelIt-1.5.0-linux-x86_64.AppImage](https://github.com/th00tames1/LabelIt/releases/download/v1.5.0/LabelIt-1.5.0-linux-x86_64.AppImage) | Portable, no installation |
+| Linux (Debian, Ubuntu) | [LabelIt-1.5.0-linux-amd64.deb](https://github.com/th00tames1/LabelIt/releases/download/v1.5.0/LabelIt-1.5.0-linux-amd64.deb) | System package |
 
 ### Windows
 

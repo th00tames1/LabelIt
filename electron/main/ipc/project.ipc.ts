@@ -7,6 +7,7 @@ import { initProjectMeta, getProjectMeta, setProjectName } from '../db/repositor
 import type { RecentProject } from '../db/schema'
 import ElectronStore from 'electron-store'
 import { importFolder } from '../services/import.service'
+import { relinkProjectImages } from '../services/relink.service'
 
 const recentStore = new ElectronStore<{ recent: RecentProject[] }>({
   name: 'recent-projects',
@@ -59,6 +60,12 @@ export function registerProjectIpc(): void {
 
       addRecent({ name, file_path: dbPath, last_opened: Date.now(), image_count: 0 })
 
+      // "Create" on a folder that already holds a copied project.lbl reuses that
+      // database. Heal its stale absolute paths BEFORE the auto-import below,
+      // otherwise the path-based duplicate check misses and every image would be
+      // imported a second time.
+      relinkProjectImages(directory)
+
       // Auto-import images and annotations already present in the project folder.
       // We catch separately because a partial import failure shouldn't make the
       // whole project-create call fail — the project is already created.
@@ -81,6 +88,16 @@ export function registerProjectIpc(): void {
       openDatabase(filePath)
       currentProjectDir = join(filePath, '..')
       mkdirSync(join(currentProjectDir, '.thumbnails'), { recursive: true })
+
+      // Heal absolute image/thumbnail paths that went stale because the
+      // project folder was copied or moved (possibly from another machine).
+      const relink = relinkProjectImages(currentProjectDir)
+      if (relink.relinked > 0 || relink.thumbnails_fixed > 0 || relink.missing > 0) {
+        console.log(
+          `[project:open] Relinked ${relink.relinked}/${relink.checked} image paths, `
+          + `fixed ${relink.thumbnails_fixed} thumbnails, ${relink.missing} not found`,
+        )
+      }
 
       const meta = getProjectMeta()
       addRecent({ name: meta.name, file_path: filePath, last_opened: Date.now(), image_count: 0 })

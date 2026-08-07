@@ -139,17 +139,17 @@ annotating, so problems are caught before export rather than after training star
 
 ## Installation
 
-Current release: **v1.5.1**. All builds are 64 bit. Click a file to download it
+Current release: **v1.5.2**. All builds are 64 bit. Click a file to download it
 directly, or browse every version on the
 [releases page](https://github.com/th00tames1/LabelIt/releases).
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Windows 10/11 | [LabelIt-1.5.1-Setup.exe](https://github.com/th00tames1/LabelIt/releases/download/v1.5.1/LabelIt-1.5.1-Setup.exe) | Standard installer |
-| macOS (Apple Silicon) | [LabelIt-1.5.1-mac-arm64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.1/LabelIt-1.5.1-mac-arm64.dmg) | M1 and newer |
-| macOS (Intel) | [LabelIt-1.5.1-mac-x64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.1/LabelIt-1.5.1-mac-x64.dmg) | Intel based Macs |
-| Linux (AppImage) | [LabelIt-1.5.1-linux-x86_64.AppImage](https://github.com/th00tames1/LabelIt/releases/download/v1.5.1/LabelIt-1.5.1-linux-x86_64.AppImage) | Portable, no installation |
-| Linux (Debian, Ubuntu) | [LabelIt-1.5.1-linux-amd64.deb](https://github.com/th00tames1/LabelIt/releases/download/v1.5.1/LabelIt-1.5.1-linux-amd64.deb) | System package |
+| Windows 10/11 | [LabelIt-1.5.2-Setup.exe](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-Setup.exe) | Standard installer |
+| macOS (Apple Silicon) | [LabelIt-1.5.2-mac-arm64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-mac-arm64.dmg) | M1 and newer |
+| macOS (Intel) | [LabelIt-1.5.2-mac-x64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-mac-x64.dmg) | Intel based Macs |
+| Linux (AppImage) | [LabelIt-1.5.2-linux-x86_64.AppImage](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-linux-x86_64.AppImage) | Portable, no installation |
+| Linux (Debian, Ubuntu) | [LabelIt-1.5.2-linux-amd64.deb](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-linux-amd64.deb) | System package |
 
 ### Windows
 
@@ -159,10 +159,16 @@ certificate. Choose **More info** and then **Run anyway**.
 
 ### macOS
 
-The macOS builds are not signed with an Apple Developer certificate, so Gatekeeper
-blocks them on first launch. After moving the app to Applications, right click it
-and choose **Open**, then confirm. Alternatively, allow it under
-**System Settings > Privacy & Security**.
+Open the disk image, drag **LabelIt** to Applications, and eject the image. The
+builds carry an ad-hoc signature but are not notarized by Apple, so Gatekeeper
+warns about an unidentified developer on first launch. Right click the app in
+Applications, choose **Open**, then confirm in the dialog. macOS remembers the
+decision, so later launches open normally. If the prompt does not offer an Open
+button, allow the app under **System Settings > Privacy & Security**, where it
+appears shortly after the blocked launch attempt.
+
+Running the app directly from the mounted disk image can fail; copy it to
+Applications first.
 
 ### Linux
 

@@ -1,6 +1,6 @@
 {
   "name": "labelit",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Fully local desktop image annotation tool",
   "main": "./out/main/index.js",
   "author": "Advanced Forestry Systems Lab",
@@ -58,6 +58,7 @@
     "appId": "com.labelingtool.app",
     "productName": "LabelIt",
     "copyright": "Copyright © 2025 Advanced Forestry Systems Lab",
+    "afterSign": "scripts/adhoc-sign-mac.cjs",
     "directories": {
       "output": "dist",
       "buildResources": "resources"
@@ -120,8 +121,7 @@
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "darkModeSupport": true,
       "hardenedRuntime": false,
-      "gatekeeperAssess": false,
-      "identity": null
+      "gatekeeperAssess": false
     },
     "dmg": {
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}"

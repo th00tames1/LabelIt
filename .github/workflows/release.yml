@@ -70,9 +70,24 @@ jobs:
       - name: Build installer
         run: ${{ matrix.command }}
         env:
-          # No Apple Developer certificate is configured, so macOS artifacts are
-          # unsigned. Disable the signing and notarization steps explicitly.
+          # There is no Developer ID in the runner keychain, so stop
+          # electron-builder from searching for one. The afterSign hook applies
+          # an ad-hoc signature instead (see scripts/adhoc-sign-mac.cjs).
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Verify the macOS app is signed
+        # 1.5.1 shipped an Intel build with no signature at all, which macOS
+        # refuses to launch. Fail the build here rather than publish that again.
+        if: runner.os == 'macOS'
+        run: |
+          app=$(find dist -maxdepth 2 -name 'LabelIt.app' -print -quit)
+          if [ -z "$app" ]; then
+            echo "::error::No LabelIt.app found under dist/"
+            exit 1
+          fi
+          echo "Verifying $app"
+          codesign --verify --verbose=2 "$app"
+          codesign --display --verbose=2 "$app" 2>&1 | grep -E 'Signature|Identifier|TeamIdentifier' || true
 
       - name: Collect installers
         shell: bash

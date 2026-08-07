@@ -34,6 +34,14 @@ interface ImagePathRow {
  * are never dropped, and the images reappear the moment the files are restored
  * and the project is reopened.
  */
+// Result of the most recent relink pass, so the renderer can tell the user when
+// images could not be found instead of just showing a black canvas.
+let lastRelinkResult: RelinkResult | null = null
+
+export function getLastRelinkResult(): RelinkResult | null {
+  return lastRelinkResult
+}
+
 export function relinkProjectImages(projectDir: string): RelinkResult {
   const db = getDatabase()
   const rows = db.prepare('SELECT id, file_path, thumbnail_path FROM images').all() as ImagePathRow[]
@@ -86,6 +94,7 @@ export function relinkProjectImages(projectDir: string): RelinkResult {
     void regenerateThumbnails(regenerate, thumbnailDir)
   }
 
+  lastRelinkResult = result
   return result
 }
 

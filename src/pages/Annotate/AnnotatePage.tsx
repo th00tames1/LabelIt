@@ -3,7 +3,7 @@ import { useImageStore } from '../../store/imageStore'
 import { useLabelStore } from '../../store/labelStore'
 import { useAnnotationStore } from '../../store/annotationStore'
 import { useUIStore } from '../../store/uiStore'
-import { imageApi } from '../../api/ipc'
+import { imageApi, projectApi } from '../../api/ipc'
 import LabelQuickPick from '../../components/LabelQuickPick'
 import ShortcutsHelp from '../../components/ShortcutsHelp'
 import TopBar from '../../components/layout/TopBar/TopBar'
@@ -115,6 +115,25 @@ export default function AnnotatePage({ onGoHome, onFinish, menuImportSignal = 0,
         targetTab: 'annotations',
       })
     })
+
+    // If the project folder was moved, opening it re-anchors the stored image
+    // paths. Report any file that still could not be found, so a black canvas
+    // is explained instead of left a mystery.
+    projectApi.getRelinkResult()
+      .then((relink) => {
+        if (relink && relink.missing > 0) {
+          setWorkflowNotice({
+            tone: 'warning',
+            title: t('notice.imagesMissingTitle'),
+            message: t('notice.imagesMissingMessage', {
+              missing: relink.missing,
+              checked: relink.checked,
+            }),
+            targetTab: 'annotations',
+          })
+        }
+      })
+      .catch(() => { /* older project or no relink info; nothing to report */ })
 
     return () => { clear() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

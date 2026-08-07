@@ -7,7 +7,7 @@ import { initProjectMeta, getProjectMeta, setProjectName } from '../db/repositor
 import type { RecentProject } from '../db/schema'
 import ElectronStore from 'electron-store'
 import { importFolder } from '../services/import.service'
-import { relinkProjectImages } from '../services/relink.service'
+import { relinkProjectImages, getLastRelinkResult } from '../services/relink.service'
 
 const recentStore = new ElectronStore<{ recent: RecentProject[] }>({
   name: 'recent-projects',
@@ -115,6 +115,10 @@ export function registerProjectIpc(): void {
 
   ipcMain.handle('project:getMeta', async () => getProjectMeta())
   ipcMain.handle('project:getCurrentDir', async () => currentProjectDir)
+
+  // Lets the renderer report images that could not be located after the project
+  // folder was moved, instead of leaving the user with a black canvas.
+  ipcMain.handle('project:getRelinkResult', async () => getLastRelinkResult())
 
   ipcMain.handle('project:updateName', async (_event, name: string) => {
     const trimmed = name.trim()

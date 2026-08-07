@@ -36,6 +36,13 @@ export interface SplitRatios {
   train: number; val: number; test: number
 }
 
+export interface RelinkResult {
+  checked: number
+  relinked: number
+  thumbnails_fixed: number
+  missing: number
+}
+
 export interface ImportResult {
   imported: number
   skipped: number
@@ -54,6 +61,7 @@ export const projectApi = {
   close: (): Promise<void> => api.project.close(),
   getMeta: (): Promise<ProjectMeta> => api.project.getMeta(),
   getCurrentDir: (): Promise<string | null> => api.project.getCurrentDir(),
+  getRelinkResult: (): Promise<RelinkResult | null> => api.project.getRelinkResult(),
   updateName: (name: string): Promise<ProjectMeta> => api.project.updateName(name),
   renameRecent: (filePath: string, name: string): Promise<RecentProject[]> =>
     api.project.renameRecent(filePath, name),

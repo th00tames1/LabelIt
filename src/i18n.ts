@@ -100,6 +100,8 @@ const messages: Record<AppLanguage, MessageTree> = {
       reviewAutoLabelsTitle: 'Review auto labels first',
       reviewAutoLabelsMessage: 'Accept or reject auto-labeled annotations before marking the image complete.',
       loadFailedTitle: 'Could not load project data',
+      imagesMissingTitle: 'Some image files were not found',
+      imagesMissingMessage: '{missing} of {checked} images could not be located under this project folder, so they cannot be displayed. Their labels are safe. Copy the missing image files into the project folder and reopen the project.',
     },
     labelManager: {
       placeholder: 'Class name...',
@@ -326,6 +328,8 @@ const messages: Record<AppLanguage, MessageTree> = {
       reviewAutoLabelsTitle: '자동 라벨을 먼저 검토하세요',
       reviewAutoLabelsMessage: '이미지를 완료 처리하기 전에 자동 라벨 어노테이션을 승인 또는 거절하세요.',
       loadFailedTitle: '프로젝트 데이터를 불러올 수 없습니다',
+      imagesMissingTitle: '일부 이미지 파일을 찾을 수 없습니다',
+      imagesMissingMessage: '{checked}장 중 {missing}장을 이 프로젝트 폴더에서 찾지 못해 표시할 수 없습니다. 라벨은 그대로 보존되어 있습니다. 해당 이미지 파일을 프로젝트 폴더로 복사한 뒤 프로젝트를 다시 열어 주세요.',
     },
     labelManager: {
       placeholder: '클래스 이름...',

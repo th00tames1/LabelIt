@@ -39,10 +39,14 @@ jobs:
             os: macos-15-intel
             command: npm run build:mac -- --x64 --publish never
             artifact: macos-x64
+            sharp_platform: darwin
+            sharp_arch: x64
           - name: macOS (Apple Silicon)
             os: macos-15
             command: npm run build:mac -- --arm64 --publish never
             artifact: macos-arm64
+            sharp_platform: darwin
+            sharp_arch: arm64
           - name: Linux (x64)
             os: ubuntu-latest
             command: npm run build:linux -- --publish never
@@ -67,6 +71,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install the target-architecture sharp binaries
+        # sharp ships its native code as per-platform optional dependencies, and
+        # npm resolves those against the RUNNER's architecture. The Intel job
+        # therefore installed sharp-darwin-arm64, which both broke signature
+        # verification and would have crashed the app on any Intel Mac. Force the
+        # packages matching the artifact we are actually building.
+        if: matrix.sharp_platform != ''
+        run: |
+          npm install --no-save --force \
+            --os=${{ matrix.sharp_platform }} --cpu=${{ matrix.sharp_arch }} \
+            sharp@$(node -p "require('./package.json').dependencies.sharp.replace('^','')")
+          echo "Installed @img packages:"
+          ls node_modules/@img
+
       - name: Build installer
         run: ${{ matrix.command }}
         env:
@@ -75,9 +93,10 @@ jobs:
           # an ad-hoc signature instead (see scripts/adhoc-sign-mac.cjs).
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Verify the macOS app is signed
-        # 1.5.1 shipped an Intel build with no signature at all, which macOS
-        # refuses to launch. Fail the build here rather than publish that again.
+      - name: Verify the macOS app architecture and signature
+        # 1.5.1 shipped an unsigned Intel build; 1.5.2 shipped an Intel build
+        # carrying arm64 sharp binaries. Both were only visible after download,
+        # so check the packaged app here and fail before anything is published.
         if: runner.os == 'macOS'
         run: |
           app=$(find dist -maxdepth 2 -name 'LabelIt.app' -print -quit)
@@ -85,9 +104,27 @@ jobs:
             echo "::error::No LabelIt.app found under dist/"
             exit 1
           fi
-          echo "Verifying $app"
-          codesign --verify --verbose=2 "$app"
-          codesign --display --verbose=2 "$app" 2>&1 | grep -E 'Signature|Identifier|TeamIdentifier' || true
+
+          expected="${{ matrix.sharp_arch }}"
+          echo "Expecting every Mach-O in the bundle to be $expected"
+
+          # Main executable
+          lipo -archs "$app/Contents/MacOS/LabelIt"
+
+          # Every bundled native addon must match the target architecture.
+          bad=0
+          while IFS= read -r node_file; do
+            archs=$(lipo -archs "$node_file" 2>/dev/null || echo "unreadable")
+            case " $archs " in
+              *" $expected "*) echo "  ok   $archs  $node_file" ;;
+              *) echo "::error::Wrong architecture ($archs, expected $expected): $node_file"; bad=1 ;;
+            esac
+          done < <(find "$app" -name '*.node')
+          [ "$bad" -eq 0 ] || exit 1
+
+          echo "Verifying signature"
+          codesign --verify --deep --verbose=2 "$app"
+          codesign --display --verbose=2 "$app" 2>&1 | grep -E 'Signature|Identifier' || true
 
       - name: Collect installers
         shell: bash
@@ -111,9 +148,11 @@ jobs:
     name: Publish release
     needs: build
     runs-on: ubuntu-latest
-    # Run even if one platform failed or could not be scheduled, so a single
-    # unavailable runner does not withhold the installers that did build.
-    if: always() && startsWith(github.ref, 'refs/tags/v')
+    # Publish only when every platform succeeded. This previously ran with
+    # always(), and that is how 1.5.2 went out with a broken Intel build even
+    # though its verification step had failed. A partial release is worse than a
+    # late one: users download whatever is attached and hit the broken file.
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4

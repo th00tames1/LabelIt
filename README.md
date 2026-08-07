@@ -139,17 +139,17 @@ annotating, so problems are caught before export rather than after training star
 
 ## Installation
 
-Current release: **v1.5.2**. All builds are 64 bit. Click a file to download it
+Current release: **v1.5.3**. All builds are 64 bit. Click a file to download it
 directly, or browse every version on the
 [releases page](https://github.com/th00tames1/LabelIt/releases).
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Windows 10/11 | [LabelIt-1.5.2-Setup.exe](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-Setup.exe) | Standard installer |
-| macOS (Apple Silicon) | [LabelIt-1.5.2-mac-arm64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-mac-arm64.dmg) | M1 and newer |
-| macOS (Intel) | [LabelIt-1.5.2-mac-x64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-mac-x64.dmg) | Intel based Macs |
-| Linux (AppImage) | [LabelIt-1.5.2-linux-x86_64.AppImage](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-linux-x86_64.AppImage) | Portable, no installation |
-| Linux (Debian, Ubuntu) | [LabelIt-1.5.2-linux-amd64.deb](https://github.com/th00tames1/LabelIt/releases/download/v1.5.2/LabelIt-1.5.2-linux-amd64.deb) | System package |
+| Windows 10/11 | [LabelIt-1.5.3-Setup.exe](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-Setup.exe) | Standard installer |
+| macOS (Apple Silicon) | [LabelIt-1.5.3-mac-arm64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-mac-arm64.dmg) | M1 and newer |
+| macOS (Intel) | [LabelIt-1.5.3-mac-x64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-mac-x64.dmg) | Intel based Macs |
+| Linux (AppImage) | [LabelIt-1.5.3-linux-x86_64.AppImage](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-linux-x86_64.AppImage) | Portable, no installation |
+| Linux (Debian, Ubuntu) | [LabelIt-1.5.3-linux-amd64.deb](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-linux-amd64.deb) | System package |
 
 ### Windows
 

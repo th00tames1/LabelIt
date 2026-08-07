@@ -1,6 +1,6 @@
 {
   "name": "labelit",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Fully local desktop image annotation tool",
   "main": "./out/main/index.js",
   "author": "Advanced Forestry Systems Lab",

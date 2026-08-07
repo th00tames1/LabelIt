@@ -35,18 +35,23 @@ jobs:
             artifact: windows-x64
           # macos-13 was retired and macos-14 is deprecated, so both macOS jobs
           # target the macOS 15 images: -intel for x64, the default for arm64.
+          # sharp_arch uses npm's naming (x64), macho_arch uses the name lipo
+          # reports (x86_64). They differ, and conflating them made the
+          # verification step reject correct builds.
           - name: macOS (Intel)
             os: macos-15-intel
             command: npm run build:mac -- --x64 --publish never
             artifact: macos-x64
             sharp_platform: darwin
             sharp_arch: x64
+            macho_arch: x86_64
           - name: macOS (Apple Silicon)
             os: macos-15
             command: npm run build:mac -- --arm64 --publish never
             artifact: macos-arm64
             sharp_platform: darwin
             sharp_arch: arm64
+            macho_arch: arm64
           - name: Linux (x64)
             os: ubuntu-latest
             command: npm run build:linux -- --publish never
@@ -105,23 +110,28 @@ jobs:
             exit 1
           fi
 
-          expected="${{ matrix.sharp_arch }}"
-          echo "Expecting every Mach-O in the bundle to be $expected"
+          # lipo reports Mach-O names (x86_64 / arm64), which differ from npm's
+          # arch names (x64 / arm64). Compare against the Mach-O spelling.
+          expected="${{ matrix.macho_arch }}"
+          echo "Expecting every Mach-O in the bundle to include $expected"
 
-          # Main executable
-          lipo -archs "$app/Contents/MacOS/LabelIt"
+          echo "Main executable: $(lipo -archs "$app/Contents/MacOS/LabelIt")"
 
           # Every bundled native addon must match the target architecture.
+          # Universal binaries are fine as long as they contain the target arch.
           bad=0
           while IFS= read -r node_file; do
-            archs=$(lipo -archs "$node_file" 2>/dev/null || echo "unreadable")
+            archs=$(lipo -archs "$node_file" 2>/dev/null || echo unreadable)
             case " $archs " in
-              *" $expected "*) echo "  ok   $archs  $node_file" ;;
-              *) echo "::error::Wrong architecture ($archs, expected $expected): $node_file"; bad=1 ;;
+              *" $expected "*) echo "  ok   [$archs] $node_file" ;;
+              *) echo "::error::Wrong architecture [$archs], expected $expected: $node_file"; bad=1 ;;
             esac
           done < <(find "$app" -name '*.node')
           [ "$bad" -eq 0 ] || exit 1
 
+          # --deep also walks the nested Electron frameworks and helper apps,
+          # which is where a mismatched native module would surface. It passed
+          # on the 1.5.2 arm64 build, so keep it.
           echo "Verifying signature"
           codesign --verify --deep --verbose=2 "$app"
           codesign --display --verbose=2 "$app" 2>&1 | grep -E 'Signature|Identifier' || true

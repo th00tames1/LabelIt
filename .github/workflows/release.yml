@@ -99,13 +99,20 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Verify the macOS app architecture and signature
-        # 1.5.1 shipped an unsigned Intel build; 1.5.2 shipped an Intel build
-        # carrying arm64 sharp binaries. Both were only visible after download,
-        # so check the packaged app here and fail before anything is published.
+        # History that shaped this step: 1.5.1 shipped an unsigned Intel build;
+        # 1.5.2 shipped an Intel package carrying arm64 sharp because the mac
+        # target listed both arches, so EACH job built BOTH and the artifacts
+        # cross-contaminated. Targets are now single-arch per job, and this step
+        # checks every app produced: the main executable and every bundled
+        # native addon must contain the target architecture, and the bundle must
+        # verify against its ad-hoc signature. Verification is deliberately
+        # NOT --deep: the plain check is what the shipped-and-working 1.5.2
+        # arm64 build actually passed, and it validates the outer resource seal
+        # that covers the unpacked native modules.
         if: runner.os == 'macOS'
         run: |
-          app=$(find dist -maxdepth 2 -name 'LabelIt.app' -print -quit)
-          if [ -z "$app" ]; then
+          apps=$(find dist -maxdepth 2 -name 'LabelIt.app')
+          if [ -z "$apps" ]; then
             echo "::error::No LabelIt.app found under dist/"
             exit 1
           fi
@@ -113,28 +120,34 @@ jobs:
           # lipo reports Mach-O names (x86_64 / arm64), which differ from npm's
           # arch names (x64 / arm64). Compare against the Mach-O spelling.
           expected="${{ matrix.macho_arch }}"
-          echo "Expecting every Mach-O in the bundle to include $expected"
-
-          echo "Main executable: $(lipo -archs "$app/Contents/MacOS/LabelIt")"
-
-          # Every bundled native addon must match the target architecture.
-          # Universal binaries are fine as long as they contain the target arch.
           bad=0
-          while IFS= read -r node_file; do
-            archs=$(lipo -archs "$node_file" 2>/dev/null || echo unreadable)
-            case " $archs " in
-              *" $expected "*) echo "  ok   [$archs] $node_file" ;;
-              *) echo "::error::Wrong architecture [$archs], expected $expected: $node_file"; bad=1 ;;
-            esac
-          done < <(find "$app" -name '*.node')
-          [ "$bad" -eq 0 ] || exit 1
 
-          # --deep also walks the nested Electron frameworks and helper apps,
-          # which is where a mismatched native module would surface. It passed
-          # on the 1.5.2 arm64 build, so keep it.
-          echo "Verifying signature"
-          codesign --verify --deep --verbose=2 "$app"
-          codesign --display --verbose=2 "$app" 2>&1 | grep -E 'Signature|Identifier' || true
+          while IFS= read -r app; do
+            echo "=== $app (expecting $expected) ==="
+
+            main_archs=$(lipo -archs "$app/Contents/MacOS/LabelIt" 2>/dev/null || echo unreadable)
+            case " $main_archs " in
+              *" $expected "*) echo "  ok   [$main_archs] main executable" ;;
+              *) echo "::error::Main executable is [$main_archs], expected $expected: $app"; bad=1 ;;
+            esac
+
+            while IFS= read -r node_file; do
+              archs=$(lipo -archs "$node_file" 2>/dev/null || echo unreadable)
+              case " $archs " in
+                *" $expected "*) echo "  ok   [$archs] $node_file" ;;
+                *) echo "::error::Wrong architecture [$archs], expected $expected: $node_file"; bad=1 ;;
+              esac
+            done < <(find "$app" -name '*.node')
+
+            if codesign --verify --verbose=2 "$app"; then
+              echo "  ok   signature verifies"
+            else
+              echo "::error::Signature verification failed: $app"
+              bad=1
+            fi
+          done <<< "$apps"
+
+          [ "$bad" -eq 0 ] || exit 1
 
       - name: Collect installers
         shell: bash

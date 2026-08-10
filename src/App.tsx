@@ -8,7 +8,9 @@ import { useUIStore } from './store/uiStore'
 import { useSettingsStore } from './store/settingsStore'
 import { useImageStore } from './store/imageStore'
 import { sidecarClient } from './api/sidecar'
-import { menuApi, projectApi, sidecarApi, setupApi } from './api/ipc'
+import { menuApi, projectApi, sidecarApi, setupApi, updateApi } from './api/ipc'
+import type { UpdateCheckResult } from './api/ipc'
+import { useI18n } from './i18n'
 import labelItWhiteLogo from './assets/Labelit_White.svg'
 import labelItDarkLogo from './assets/Labelit_Dark.svg'
 
@@ -29,6 +31,9 @@ export default function App() {
   const setActiveImageId = useImageStore((s) => s.setActiveImageId)
   const sidecarBootingRef = useRef(false)
   const setupCheckedRef = useRef(false)
+  const updateCheckedRef = useRef(false)
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
+  const [updateDismissed, setUpdateDismissed] = useState(false)
 
   // Check AI setup on first load (after a short delay so app feels snappy)
   useEffect(() => {
@@ -42,6 +47,18 @@ export default function App() {
         // Non-critical — skip silently
       }
     }, 2000)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // Notify-only update check: one GitHub Releases lookup shortly after launch.
+  // Offline or blocked networks resolve to null and nothing is shown — this app
+  // must stay fully usable without internet.
+  useEffect(() => {
+    if (updateCheckedRef.current) return
+    updateCheckedRef.current = true
+    const timer = setTimeout(() => {
+      updateApi.check().then(setUpdateInfo).catch(() => { /* offline is normal */ })
+    }, 5000)
     return () => clearTimeout(timer)
   }, [])
 
@@ -148,6 +165,15 @@ export default function App() {
     />
   )
 
+  const updateOverlay = updateInfo?.update_available && !updateDismissed && (
+    <UpdateBanner
+      latest={updateInfo.latest_version}
+      current={updateInfo.current_version}
+      onDownload={() => { updateApi.openDownloadPage().catch(console.error) }}
+      onDismiss={() => setUpdateDismissed(true)}
+    />
+  )
+
   if (page === 'finish' && currentProject) {
     return (
       <>
@@ -160,6 +186,7 @@ export default function App() {
       />
       <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
       {aiSetupOverlay}
+      {updateOverlay}
       </>
     )
   }
@@ -175,6 +202,7 @@ export default function App() {
         />
         <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
         {aiSetupOverlay}
+        {updateOverlay}
       </>
     )
       }
@@ -187,7 +215,66 @@ export default function App() {
       />
       <AboutOverlay open={showAbout} onClose={() => setShowAbout(false)} logo={resolvedTheme === 'light' ? labelItWhiteLogo : labelItDarkLogo} />
       {aiSetupOverlay}
+      {updateOverlay}
     </>
+  )
+}
+
+/**
+ * Bottom-right toast offering a newer release. Notify-only by design: macOS
+ * builds are ad-hoc signed and Squirrel.Mac refuses to auto-install them, so
+ * the download button opens the GitHub releases page instead. See
+ * electron/main/services/update.service.ts for the full-auto-update path.
+ */
+function UpdateBanner({ latest, current, onDownload, onDismiss }: {
+  latest: string
+  current: string
+  onDownload: () => void
+  onDismiss: () => void
+}) {
+  const { t } = useI18n()
+
+  return (
+    <div style={{
+      position: 'fixed',
+      right: 20,
+      bottom: 20,
+      zIndex: 9000,
+      width: 'min(340px, calc(100vw - 40px))',
+      padding: '14px 16px',
+      borderRadius: 12,
+      background: 'var(--bg-secondary)',
+      border: '1px solid var(--border)',
+      boxShadow: 'var(--shadow-lg)',
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+        {t('update.title')}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
+        {t('update.body', { latest, current })}
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button
+          onClick={onDismiss}
+          style={{
+            padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+            background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+            border: '1px solid var(--border)', cursor: 'pointer',
+          }}
+        >
+          {t('update.dismiss')}
+        </button>
+        <button
+          onClick={onDownload}
+          style={{
+            padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+            background: 'var(--accent)', color: 'white', border: 'none', cursor: 'pointer',
+          }}
+        >
+          {t('update.download')}
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -223,7 +310,7 @@ function AboutOverlay({ open, onClose, logo }: { open: boolean; onClose: () => v
         <img src={logo} alt="LabelIt" style={{ width: 220, maxWidth: '100%', height: 'auto', display: 'block', margin: '0 auto 16px' }} />
         <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>LabelIt</div>
         <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-          <div>Version 1.5.3</div>
+          <div>Version 1.5.4</div>
           <div>Heechan Jeong</div>
           <div>heechan.jeong@oregonstate.edu</div>
           <div>Oregon State University</div>

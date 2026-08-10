@@ -131,6 +131,10 @@ annotating, so problems are caught before export rather than after training star
 
 **Platform**
 - Runs fully offline, with no telemetry and no account
+- When a network connection is available, the app checks GitHub Releases once
+  per session for a newer version and shows a download notice. Nothing is
+  installed automatically, no user data is sent, and the check fails silently
+  when offline
 - CUDA GPU acceleration with automatic CPU fallback
 - Dark and light themes
 - English and Korean interface
@@ -139,17 +143,17 @@ annotating, so problems are caught before export rather than after training star
 
 ## Installation
 
-Current release: **v1.5.3**. All builds are 64 bit. Click a file to download it
+Current release: **v1.5.4**. All builds are 64 bit. Click a file to download it
 directly, or browse every version on the
 [releases page](https://github.com/th00tames1/LabelIt/releases).
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| Windows 10/11 | [LabelIt-1.5.3-Setup.exe](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-Setup.exe) | Standard installer |
-| macOS (Apple Silicon) | [LabelIt-1.5.3-mac-arm64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-mac-arm64.dmg) | M1 and newer |
-| macOS (Intel) | [LabelIt-1.5.3-mac-x64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-mac-x64.dmg) | Intel based Macs |
-| Linux (AppImage) | [LabelIt-1.5.3-linux-x86_64.AppImage](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-linux-x86_64.AppImage) | Portable, no installation |
-| Linux (Debian, Ubuntu) | [LabelIt-1.5.3-linux-amd64.deb](https://github.com/th00tames1/LabelIt/releases/download/v1.5.3/LabelIt-1.5.3-linux-amd64.deb) | System package |
+| Windows 10/11 | [LabelIt-1.5.4-Setup.exe](https://github.com/th00tames1/LabelIt/releases/download/v1.5.4/LabelIt-1.5.4-Setup.exe) | Standard installer |
+| macOS (Apple Silicon) | [LabelIt-1.5.4-mac-arm64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.4/LabelIt-1.5.4-mac-arm64.dmg) | M1 and newer |
+| macOS (Intel) | [LabelIt-1.5.4-mac-x64.dmg](https://github.com/th00tames1/LabelIt/releases/download/v1.5.4/LabelIt-1.5.4-mac-x64.dmg) | Intel based Macs |
+| Linux (AppImage) | [LabelIt-1.5.4-linux-x86_64.AppImage](https://github.com/th00tames1/LabelIt/releases/download/v1.5.4/LabelIt-1.5.4-linux-x86_64.AppImage) | Portable, no installation |
+| Linux (Debian, Ubuntu) | [LabelIt-1.5.4-linux-amd64.deb](https://github.com/th00tames1/LabelIt/releases/download/v1.5.4/LabelIt-1.5.4-linux-amd64.deb) | System package |
 
 ### Windows
 

@@ -106,6 +106,11 @@ const api = {
     annotationTypesInUse: () => ipcRenderer.invoke('project:annotationTypesInUse'),
   },
 
+  update: {
+    check: () => ipcRenderer.invoke('update:check'),
+    openDownloadPage: () => ipcRenderer.invoke('update:openDownloadPage'),
+  },
+
   sidecar: {
     getStatus: () => ipcRenderer.invoke('sidecar:getStatus'),
     ensureStarted: () => ipcRenderer.invoke('sidecar:ensureStarted'),

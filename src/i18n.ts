@@ -90,6 +90,12 @@ const messages: Record<AppLanguage, MessageTree> = {
       zoom: 'Zoom',
       fit: 'Fit',
     },
+    update: {
+      title: 'Update available',
+      body: 'LabelIt {latest} has been released. You are running {current}.',
+      download: 'Download',
+      dismiss: 'Later',
+    },
     notice: {
       createLabelTitle: 'Create a class first',
       createLabelMessage: 'Add your first class in the Classes tab before drawing on the canvas.',
@@ -317,6 +323,12 @@ const messages: Record<AppLanguage, MessageTree> = {
     canvas: {
       zoom: '줌',
       fit: '맞춤',
+    },
+    update: {
+      title: '업데이트 알림',
+      body: 'LabelIt {latest} 버전이 출시되었습니다. 현재 버전은 {current}입니다.',
+      download: '다운로드',
+      dismiss: '나중에',
     },
     notice: {
       createLabelTitle: '먼저 클래스를 만드세요',

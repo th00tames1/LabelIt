@@ -213,6 +213,18 @@ export const statsApi = {
   annotationTypesInUse: (): Promise<string[]> => api.stats.annotationTypesInUse(),
 }
 
+// ─── Update check ─────────────────────────────────────────────────────────────
+export interface UpdateCheckResult {
+  current_version: string
+  latest_version: string
+  update_available: boolean
+}
+
+export const updateApi = {
+  check: (): Promise<UpdateCheckResult | null> => api.update.check(),
+  openDownloadPage: (): Promise<void> => api.update.openDownloadPage(),
+}
+
 // ─── Sidecar ─────────────────────────────────────────────────────────────────
 export const sidecarApi = {
   getStatus: (): Promise<string> => api.sidecar.getStatus(),
